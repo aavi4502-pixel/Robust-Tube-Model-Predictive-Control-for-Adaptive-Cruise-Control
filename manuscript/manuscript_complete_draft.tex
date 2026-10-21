@@ -120,7 +120,7 @@ e_{d,t} = d_t - \hat d_t, \qquad |e_{d,t}| \le e_{d,\max} = 0.05~\text{m/s}^2.
 
 \subsection{Nominal Prediction Model and Control Law}
 
-At sampling instant $t$, nominal MPC predicts states $\xi_{k|t}$ and inputs $u_{\xi,k|t}$ over prediction horizon $N = 10$:
+At sampling instant $t$, nominal MPC predicts states $\xi_{k|t}$ and inputs $u_{\xi,k|t}$ over prediction horizon $N = 6$:
 \begin{equation}
 \xi_{0|t} = \hat x_t, \qquad \xi_{k+1|t} = \Phi \xi_{k|t} + \Gamma u_{\xi,k|t} + \Gamma_a a_{p,k|t},
 \end{equation}
@@ -360,8 +360,8 @@ To guarantee that the applied command $u_{\mathrm{applied},t}$ satisfies physica
 \begin{proposition}[Applied-Input Constraint Satisfaction in Nominal Mode]
 Under Assumption~\ref{ass:actuator}, let $c_t = K e_{\xi,t} - \hat d_t$. Define the step-0 nominal bounds:
 \begin{align}
-u_{\xi 0,\mathrm{LB}} &= \max\left(u_{\min} - c_t, \, u_{\mathrm{applied},t-1} - \Delta u_{\max} - c_t, \, u_{\min} + \hat d_t\right), \label{eq:step0_lb} \\
-u_{\xi 0,\mathrm{UB}} &= \min\left(u_{\max} - c_t, \, u_{\mathrm{applied},t-1} + \Delta u_{\max} - c_t, \, u_{\max} + \hat d_t\right). \label{eq:step0_ub}
+u_{\xi 0,\mathrm{LB}} &= \max\left(u_{\min} - c_t, \, u_{\mathrm{applied},t-1} - \Delta u_{\max} - c_t, \, u_{\xi,t-1} - \Delta u_{\max}, \, u_{\min} + \hat d_t\right), \label{eq:step0_lb} \\
+u_{\xi 0,\mathrm{UB}} &= \min\left(u_{\max} - c_t, \, u_{\mathrm{applied},t-1} + \Delta u_{\max} - c_t, \, u_{\xi,t-1} + \Delta u_{\max}, \, u_{\max} + \hat d_t\right). \label{eq:step0_ub}
 \end{align}
 If the nominal QP is feasible at sample $t$, commanding $u_{\xi,\mathrm{cmd}} = u_{\xi,0|t}$ strictly guarantees:
 \begin{equation}

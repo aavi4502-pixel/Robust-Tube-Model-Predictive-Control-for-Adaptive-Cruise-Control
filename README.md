@@ -27,9 +27,9 @@ This project delivers an **end-to-end co-designed robust control framework** imp
 ## The Four Core Innovations
 
 ### 1. Instantaneous Step-0 Conditioning (Proposition 1)
-To ensure the physical actuator command strictly satisfies rate limits, the first nominal decision variable $u_{\xi,0|t}$ is dynamically bounded inside the QP by the previous applied command $u_{\mathrm{applied},t-1}$ and the instantaneous ancillary feedback correction $c_t$:
+To ensure the physical actuator command strictly satisfies rate limits, the first nominal decision variable $u_{\xi,0|t}$ is bounded inside the QP by the 4-way intersection implemented in `stage44c_mpc_solver.m:177–185`:
 ```math
-u_{\xi,0|t} \in [u_{\min} - c_t, \, u_{\max} - c_t] \cap [u_{\mathrm{applied},t-1} - \Delta u_{\max} - c_t, \, u_{\mathrm{applied},t-1} + \Delta u_{\max} - c_t]
+u_{\xi,0|t} \in \underbrace{[u_{\min} - c_t, \, u_{\max} - c_t]}_{\text{Applied Amplitude}} \cap \underbrace{[u_{\mathrm{app},t-1} \pm \Delta u_{\max} - c_t]}_{\text{Applied Slew Rate}} \cap \underbrace{[u_{\xi,\mathrm{prev}} \pm \Delta u_{\max}]}_{\text{Nominal Slew Rate}} \cap \underbrace{[u_{\min} + \hat d_t, \, u_{\max} + \hat d_t]}_{\text{Disturbance Decoupling}}
 ```
 This guarantees an exact analytical applied rate compliance:
 ```math
@@ -42,10 +42,12 @@ Instead of imposing static worst-case disturbance bounds across the entire predi
 ```math
 \bar w_i = \alpha_i \bar w_{\max}, \quad \bar\sigma_{i+1|t} = \lambda \bar\sigma_{i|t} + \frac{\alpha_i^2}{1-\lambda}
 ```
-This formulation accounts for continuous powertrain lag ($\tau_a = 0.5\ \mathrm{s}$) under Zero-Order Hold (ZOH) discretization, reducing peak conservatism by **98.2%** ($\bar\sigma_{\mathrm{peak}} = 22.15 \to 0.39$) during hard braking.
+This formulation accounts for continuous powertrain lag ($\tau_a = 0.5\ \mathrm{s}$) under Zero-Order Hold (ZOH) discretization. It achieves:
+* **91.0% uncertainty reduction** under nominal following (Variant A $\to$ B: $3.7925 \to 0.3405$).
+* **98.2% uncertainty reduction** under emergency braking (Variant C $\to$ E: $22.1476 \to 0.3915$), directly preventing interval collapse.
 
 ### 3. LMI-Verified Ancillary Gain Co-Design (Theorem 1)
-The ancillary feedback gain is synthesized using discrete Lyapunov dissipation Linear Matrix Inequalities (LMIs) with state/input weighting $R = 50$:
+The ancillary feedback gain is obtained via discrete LQR synthesis ($Q = \mathrm{diag}(100, 50, 10)$, $R = 50$) and then **certified** by a discrete Lyapunov dissipation Linear Matrix Inequality (LMI) (Theorem 1), which returns the invariant metric $P$, decay rate $\rho = 0.9560$, and tube capacity $\sigma^*$:
 ```math
 K_{\mathrm{opt}} = [1.2345, \, -0.5985, \, -1.2588]
 ```
@@ -69,7 +71,7 @@ This guarantees inductive rate compliance ($|u(t) - u(t-1)| \le \Delta u_{\max}$
 The longitudinal vehicle following model incorporates spacing error $\Delta d(t) = d_{\mathrm{lead}}(t) - d_{\mathrm{ego}}(t) - (l_0 + \tau_h v_{\mathrm{ego}}(t))$, relative velocity $\Delta v(t) = v_{\mathrm{lead}}(t) - v_{\mathrm{ego}}(t)$, and ego acceleration $a(t)$:
 
 ```math
-\begin{bmatrix} \Delta\dot d \\ \Delta\dot v \\ \dot a \end{bmatrix} = \begin{bmatrix} 0 & 1 & -\tau_h \\ 0 & 0 & -1 \\ 0 & 0 & -\frac{1}{\tau_a} \end{bmatrix} \begin{bmatrix} \Delta d \\ \Delta v \\ a \end{bmatrix} + \begin{bmatrix} 0 \\ 0 \\ \frac{1}{\tau_a} \end{bmatrix} u + \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix} a_p + \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} w_a
+\begin{bmatrix} \Delta\dot d \\ \Delta\dot v \\ \dot a \end{bmatrix} = \begin{bmatrix} 0 & 1 & -\tau_h \\ 0 & 0 & -1 \\ 0 & \frac{c}{\tau_a} & -\frac{1}{\tau_a} \end{bmatrix} \begin{bmatrix} \Delta d \\ \Delta v \\ a \end{bmatrix} + \begin{bmatrix} 0 \\ 0 \\ \frac{1}{\tau_a} \end{bmatrix} u + \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix} a_p + \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} w_a
 ```
 
 ### Key Parameters:
@@ -78,7 +80,8 @@ The longitudinal vehicle following model incorporates spacing error $\Delta d(t)
 | $T_s$ | Controller Sampling Period | $0.1$ | $\mathrm{s}$ |
 | $N$ | Prediction Horizon | $6$ | steps ($0.6\ \mathrm{s}$) |
 | $\tau_a$ | Powertrain Time Constant | $0.5$ | $\mathrm{s}$ |
-| $\tau_h$ | Desired Time Headway | $1.2$ | $\mathrm{s}$ |
+| $c$ | Linearized Drag Coefficient ($C_0 v_0$) | $2.0$ | $\mathrm{s^{-1}}$ |
+| $\tau_h$ | Desired Time Headway | $1.5$ | $\mathrm{s}$ |
 | $l_0$ | Minimum Standstill Distance | $5.0$ | $\mathrm{m}$ |
 | $[u_{\min}, u_{\max}]$ | Acceleration Command Bounds | $[-3.0, +2.5]$ | $\mathrm{m/s^2}$ |
 | $\Delta u_{\max}$ | Maximum Actuator Slew Rate | $0.25$ | $\mathrm{m/s^2}$ per $100\ \mathrm{ms}$ ($2.5\ \mathrm{m/s^3}$ jerk) |

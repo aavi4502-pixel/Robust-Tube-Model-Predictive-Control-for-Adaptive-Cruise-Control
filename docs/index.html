@@ -455,7 +455,7 @@
                     Standard tube MPC computes nominal input $u_\xi$ and adds ancillary feedback $c_t$ outside the solver, causing the total applied command $u_{\mathrm{app}}(t) = u_\xi(0|t) + c_t$ to violate actuator rate limits. Our architecture directly constrains the first nominal decision:
                 </p>
                 <div class="bg-slate-950 p-2.5 rounded font-mono text-[11px] text-cyan-300">
-                    $$u_{\xi,0|t} \in [u_{\min} - c_t, u_{\max} - c_t] \cap [u_{\mathrm{app},t-1} - \Delta u_{\max} - c_t, u_{\mathrm{app},t-1} + \Delta u_{\max} - c_t]$$
+                    $$u_{\xi,0|t} \in [u_{\min} - c_t, u_{\max} - c_t] \cap [u_{\mathrm{app},t-1} \pm \Delta u_{\max} - c_t] \cap [u_{\xi,\mathrm{prev}} \pm \Delta u_{\max}] \cap [u_{\min} + \hat d_t, u_{\max} + \hat d_t]$$
                 </div>
                 <p class="text-slate-400 leading-relaxed">
                     This guarantees analytical applied slew compliance: $|u_{\mathrm{app}}(t) - u_{\mathrm{app}}(t-1)| \le \Delta u_{\max}$ across all feasible nominal steps.
@@ -478,7 +478,7 @@
             <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
                 <h3 class="font-bold text-cyan-400 text-sm">3. LMI-Verified Ancillary Feedback Selection (Theorem 1)</h3>
                 <p class="text-slate-300 leading-relaxed">
-                    The ancillary gain $K_{\mathrm{opt}} = [1.2345, -0.5985, -1.2588]$ is synthesized via discrete Lyapunov dissipation LMIs with weighting $R=50$ (stored in <code class="text-cyan-300">data/stage44c_lmi_candidate.mat</code>). It minimizes the input support coefficient:
+                    The ancillary gain $K_{\mathrm{opt}} = [1.2345, -0.5985, -1.2588]$ is obtained via discrete LQR ($Q = \mathrm{diag}(100, 50, 10), R=50$) and certified via discrete Lyapunov dissipation LMIs (Theorem 1, stored in <code class="text-cyan-300">data/stage44c_lmi_candidate.mat</code>). It minimizes the input support coefficient:
                 </p>
                 <div class="bg-slate-950 p-2.5 rounded font-mono text-[11px] text-cyan-300">
                     $$g_u = \sqrt{K_{\mathrm{opt}} (P^{-1})_{11} K_{\mathrm{opt}}^\top} = 0.755533 \implies \sigma^* = \left(\frac{u_{\max}-u_{\min}}{2 g_u}\right)^2 = 13.2482$$
