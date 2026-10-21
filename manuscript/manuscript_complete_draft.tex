@@ -1,0 +1,656 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{bm}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{stfloats}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\newtheorem{definition}{Definition}
+\newtheorem{assumption}{Assumption}
+
+\begin{document}
+
+\title{Trajectory-Dependent Uncertainty Propagation and Applied-Input-Constrained Tube MPC for Adaptive Cruise Control}
+
+\author{Avinash~K.%
+\thanks{The author is with the Department of Electrical Engineering.}}
+
+\markboth{IEEE Transactions on Control Systems Technology,~Draft~Manuscript}%
+{K.: Trajectory-Dependent Uncertainty Propagation and Applied-Input-Constrained Tube MPC}
+
+\maketitle
+
+\begin{abstract}
+Tube-based model predictive control (MPC) provides robust constraint satisfaction for uncertain automotive systems by bounding trajectory deviations within invariant tubes. However, standard formulations face practical challenges in adaptive cruise control (ACC): static uncertainty bounds lead to excessive constraint tightening and artificial optimization infeasibility during aggressive transients, while ancillary feedback and disturbance compensation added outside the nominal MPC planner can violate physical actuator amplitude and slew-rate limits. This paper investigates an integrated tube-based MPC architecture for longitudinal ACC. First, a trajectory-dependent uncertainty propagation recursion is derived under linearized longitudinal dynamics and powertrain lag, reducing conservatism while establishing an upper bound on error variance. Second, explicit instantaneous conditioning of the first nominal control decision is introduced to strictly enforce actuator amplitude and per-sample slew-rate limits on the total applied command. Third, an LMI-verified ancillary feedback gain selection procedure is evaluated, optimizing the trade-off between error rejection and tube capacity. The architecture includes a rate-limited fallback policy that maintains rate compliance during infeasible transitions under stated actuator interface assumptions. Across a 5-variant orthogonal ablation study on standardized benchmarks, the unconstrained baseline (Variant A) violates actuator slew-rate limits by up to $0.354~\text{m/s}^2$. In the moderate-braking benchmark (Core-3), naively enforcing applied slew constraints with static bounds (Variant C) collapses optimization feasibility to 33.3\% due to input-interval collapse. The proposed co-designed architecture (Variant E) restores 100.0\% feasibility on Core-3 while eliminating measured applied slew-rate violations (with residuals bounded strictly within interior-point solver tolerance, $r_{\Delta u}^{\max} \le 5.10 \times 10^{-5}~\text{m/s}^2$) and reducing control total variation by 48.4\%. In severe braking and wind disturbance scenarios (Core-4), where dynamic headway deficits reduce nominal QP feasibility to 5.9\%, the rate-limited fallback policy maintains actuator compliance and positive stopping clearance. A 16-case emergency braking study demonstrates rate compliance and positive clearance across all tested scenarios.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Adaptive cruise control, tube-based model predictive control, actuator slew-rate constraints, trajectory-dependent uncertainty propagation, linear matrix inequalities.
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+\IEEEPARstart{A}{daptive} cruise control (ACC) is a fundamental longitudinal vehicle automation system that regulates host vehicle velocity to track a driver-set target speed while maintaining a safe following distance behind a preceding vehicle. An effective ACC system must balance tracking precision, ride comfort, actuator limitations, and collision avoidance~\cite{Mayne2005,Rakovic2012}. Achieving these concurrent requirements is challenging because vehicle dynamics are subject to uncertain aerodynamic drag, engine/brake actuator lag, road slope variations, and discrepancies between commanded and realized acceleration.
+
+Model predictive control (MPC) is widely used for ACC due to its capability to handle multivariable dynamics and hard state/input constraints over a receding horizon. However, nominal MPC lacks inherent robustness against model mismatch and external disturbances. Robust tube-based MPC resolves this by optimizing a nominal trajectory while bounding true state trajectories inside an invariant tube via ancillary feedback~\cite{Mayne2005,Chisci2001}. 
+
+Despite these theoretical advantages, practical deployment of tube MPC in longitudinal ACC encounters three severe obstacles:
+\begin{enumerate}
+    \item \emph{Conservatism of Static Uncertainty Bounds:} Conventional tube MPC employs time-invariant, worst-case uncertainty sets. Under aggressive braking or transient spacing corrections, static bounds shrink the admissible nominal input set excessively, triggering artificial optimization infeasibility even when physical control authority remains available.
+    \item \emph{Actuator Slew-Rate and Amplitude Violations:} The total control signal delivered to the vehicle's lower-level electronic control unit (ECU) consists of the nominal MPC decision augmented by ancillary tracking error feedback and disturbance compensation. Constraining the nominal input alone does not prevent the total applied command from violating actuator saturation or slew-rate limits.
+    \item \emph{Coupling between Feedback Gain and Feasibility:} The ancillary feedback gain $K$ governs tracking error rejection, but larger gains expand the Minkowski difference used in constraint tightening, reducing the admissible nominal constraint polytope. Gain selection must therefore balance error regulation against optimization feasibility.
+\end{enumerate}
+
+\subsection{Related Work and Research Gap}
+
+Robust MPC for uncertain vehicle platooning and ACC has been investigated through invariant sets, tube-based constraint tightening, and disturbance observers. Most prominently, Quan et al.~\cite{Quan2024} established an output-feedback tube-based MPC for ACC considering linear fractional transformation (LFT) dynamic uncertainties and external wind disturbances. While formulating rigorous Lyapunov-based dissipation bounds and augmented observer estimation, their nominal MPC planner optimizes input increments without constraining the total applied actuator command, which allows ancillary feedback and disturbance compensation to induce severe slew-rate violations (up to $2.44~\text{m/s}^2$ in emergency braking). Furthermore, their static bounding box triggers premature optimization infeasibility during spacing transients.
+
+Ping et al.~\cite{Ping2023} developed an ellipsoidal output-feedback tube MPC jointly designing observer and ancillary gains using linear matrix inequalities (LMIs). However, their formulation employs static Minkowski set subtraction and omits actuator slew-rate limits, which leads to interval collapse during rapid deceleration transients. Zhou et al.~\cite{Zhou2024} examined tube MPC with state and input delays, establishing recursive feasibility under polytopic bounds, but did not address trajectory-dependent uncertainty scaling. In automotive ACC, Fan et al.~\cite{Fan2024} formulated dynamic tube MPC using probabilistic Cantelli/Chebyshev bounds. While reducing conservatism, chance-constrained relaxations surrender worst-case deterministic constraint satisfaction and neglect ECU command rate limits. In aerospace applications, rate-constrained tube MPC has been studied via double-tightening of input amplitude and input increment sets~\cite{Richards2006}. As demonstrated in our ablation study, applying static double-tightening to automotive ACC collapses feasibility to 33.3\% because the cumulative tightening leaves an empty admissible input interval.
+
+Consequently, an important research gap exists: how to combine trajectory-dependent uncertainty propagation with explicit first-step conditioning on the total applied command, supported by LMI-verified feedback gain selection, without inducing constraint collapse or rate-limit violations.
+
+\subsection{Contributions}
+
+This paper develops a robust tube-based MPC architecture for longitudinal ACC that resolves these limitations. The specific contributions are:
+\begin{enumerate}
+    \item \emph{Trajectory-Dependent Uncertainty Propagation:} We derive an uncertainty recursion along the predicted nominal trajectory under linearized longitudinal dynamics and powertrain lag. Incorporating explicit dimensional weighting constants ($\gamma_d = 1.0$, $\gamma_z = \tau_0^2 = 1.0~\text{s}^2$), the recursion enforces dimensional homogeneity in $(\text{m/s}^2)^2$ and reduces peak uncertainty by up to 91\% compared to static worst-case bounds.
+    \item \emph{Applied-Input-Aware Step-0 Conditioning:} We formulate exact linear inequalities on the first nominal MPC decision $u_{\xi,0|t}$ that directly incorporate the instantaneous ancillary correction and disturbance estimate. For any feasible quadratic program (QP), the total command delivered to the vehicle strictly satisfies actuator amplitude and per-sample slew-rate limits.
+    \item \emph{Slew-Invariant Fallback Mechanism:} A deterministic fallback policy is integrated for exterior domain operation ($\sigma_t > \sigma^*$) or solver exceptions. We prove that transitions into and out of fallback strictly adhere to the actuator slew-rate limit without command discontinuities.
+    \item \emph{LMI-Verified Gain Selection and Orthogonal Ablation:} An LMI analysis certificate ($\lambda_{\min}(P) = 1.5629$, $\rho = 0.9560$, $\lambda_{\max}(\mathcal{L}) = -1.0011\times 10^{-6}$) is established for a candidate gain $K_{\mathrm{opt}} = [1.2345, -0.5985, -1.2588]$. A 5-variant orthogonal ablation across 4 core benchmarks and a 16-case emergency braking sweep isolates the contribution of each design element.
+\end{enumerate}
+
+\subsection{Paper Organization}
+
+Section~II presents the longitudinal vehicle model, uncertainty formulation, and nominal MPC setup. Section~III derives the trajectory-dependent uncertainty propagation and tightened constraint formulation. Section~IV presents the LMI-verified feedback gain selection, step-0 applied-input conditioning proof, and slew-invariant fallback policy. Section~V presents the comprehensive 5-variant ablation study and 16-case emergency braking benchmark. Section~VI discusses practical implications, limitations, and concluding remarks.
+
+\section{Vehicle Model and Problem Formulation}
+
+\subsection{Longitudinal ACC Dynamics}
+
+Consider an ego vehicle following a preceding vehicle. Let $l_t$ denote inter-vehicle physical clearance, $v_t$ host vehicle velocity, $v_{p,t}$ preceding vehicle velocity, and $a_t$ host vehicle acceleration. Following the benchmark ACC formulation established by Quan et al.~\cite{Quan2024}, the desired spacing under a constant-time-headway policy is:
+\begin{equation}
+l_{\mathrm{des},t} = \tau_h v_t + l_0,
+\end{equation}
+where $\tau_h = 1.5~\text{s}$ is the headway time and $l_0 = 5.0~\text{m}$ is the standstill clearance. The spacing error and relative velocity are defined as:
+\begin{equation}
+\delta_{d,t} = l_t - \tau_h v_t - l_0, \qquad \delta_{v,t} = v_{p,t} - v_t.
+\end{equation}
+The continuous-time error-state vector is $x(t) = [\delta_d(t), \delta_v(t), a(t)]^\top$. Longitudinal dynamics incorporating aerodynamic drag linearization $c = C_0 v_0 = 2.0$ and powertrain lag $\tau_a = 0.5~\text{s}$ are given by:
+\begin{align}
+\dot\delta_d(t) &= \delta_v(t) - \tau_h a(t), \label{eq:cont_dyn1} \\
+\dot\delta_v(t) &= a_p(t) - a(t), \label{eq:cont_dyn2} \\
+\dot a(t) &= \frac{c}{\tau_a}\delta_v(t) -\frac{1}{\tau_a} a(t) + \frac{1}{\tau_a} u(t) + w(t), \label{eq:cont_dyn3}
+\end{align}
+where $u(t)$ is commanded acceleration, $a_p(t)$ is lead vehicle acceleration, and $w(t)$ accounts for aerodynamic disturbances and unmodeled powertrain mismatches.
+
+Discretizing (\ref{eq:cont_dyn1})--(\ref{eq:cont_dyn3}) via Zero-Order Hold (ZOH) with sampling interval $T_s = 0.1~\text{s}$ yields:
+\begin{equation}
+x_{t+1} = \Phi x_t + \Gamma u_t + \Gamma_a a_{p,t} + \Gamma_d d_t + \Gamma_w w_t,
+\label{eq:disc_sys}
+\end{equation}
+with the exact plant matrices:
+\begin{align}
+\Phi &= \begin{bmatrix} 1.0000 & 0.0694 & -0.1540 \\ 0 & 0.9801 & -0.0993 \\ 0 & 0.3973 & 0.9801 \end{bmatrix}, \quad
+\Gamma = \begin{bmatrix} -0.0153 \\ -0.0100 \\ 0.1987 \end{bmatrix}, \\
+\Gamma_a &= \begin{bmatrix} 0.0040 \\ 0.0993 \\ 0.0199 \end{bmatrix}, \quad
+\Gamma_d = \begin{bmatrix} 0 \\ 0 \\ 0.1000 \end{bmatrix}.
+\end{align}
+
+\subsection{Disturbance and Uncertainty Representation}
+
+The vehicle is subject to aerodynamic drag variations and powertrain parameter drift. Linearizing aerodynamic drag about nominal cruise velocity yields:
+\begin{equation}
+w_t = \Delta_a a_t + \Delta_v \delta_{v,t} + \Delta_u u_t + \zeta_t,
+\end{equation}
+where parameter uncertainties satisfy $\|\Delta_a\| \le \bar\delta_a = 0.20~\text{s}^{-1}$. A disturbance observer provides an estimate $\hat d_t$ of matched road slope and low-frequency aerodynamic forces, with bounded estimation error:
+\begin{equation}
+e_{d,t} = d_t - \hat d_t, \qquad |e_{d,t}| \le e_{d,\max} = 0.05~\text{m/s}^2.
+\end{equation}
+
+\subsection{Nominal Prediction Model and Control Law}
+
+At sampling instant $t$, nominal MPC predicts states $\xi_{k|t}$ and inputs $u_{\xi,k|t}$ over prediction horizon $N = 10$:
+\begin{equation}
+\xi_{0|t} = \hat x_t, \qquad \xi_{k+1|t} = \Phi \xi_{k|t} + \Gamma u_{\xi,k|t} + \Gamma_a a_{p,k|t},
+\end{equation}
+where $\hat x_t$ is the current state estimate from a Kalman filter. The tracking error is $e_{\xi,t} = \hat x_t - \xi_{0|t}$. The total unconstrained control law commanded to the ECU is:
+\begin{equation}
+u_{\mathrm{raw},t} = u_{\xi,0|t} + K e_{\xi,t} - \hat d_t \equiv u_{\xi,0|t} + c_t,
+\label{eq:ctrl_law}
+\end{equation}
+where $K \in \mathbb{R}^{1\times 3}$ is the ancillary feedback gain, and $c_t \equiv K e_{\xi,t} - \hat d_t$ is the instantaneous compensation term.
+
+\subsection{Operational Constraints}
+
+The controller must respect state constraints $\mathcal{X} = \{x : H_x x \le h_x\}$:
+\begin{equation}
+\delta_{d,t} \ge -10.0~\text{m}, \quad \delta_{v,t} \ge -5.0~\text{m/s}, \quad a_{\min} \le a_t \le a_{\max},
+\end{equation}
+where $a_{\min} = -3.5~\text{m/s}^2$ and $a_{\max} = 2.5~\text{m/s}^2$. Physical actuator limits impose hard magnitude bounds on the applied command:
+\begin{equation}
+u_{\min} \le u_{\mathrm{applied},t} \le u_{\max}, \quad u_{\min} = -3.0~\text{m/s}^2, \; u_{\max} = 2.5~\text{m/s}^2,
+\end{equation}
+and per-sample slew-rate limits:
+\begin{equation}
+|u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1}| \le \Delta u_{\max} = 0.25~\text{m/s}^2,
+\end{equation}
+corresponding to a continuous command rate limit $\dot u_{\max} = 2.5~\text{m/s}^3$ at $T_s = 0.1~\text{s}$.
+
+\begin{remark}[Physical Headroom Between State and Actuator Limits]
+The physical acceleration state lower bound $a_{\min} = -3.5~\text{m/s}^2$ is intentionally distinct from the commanded actuator lower bound $u_{\min} = -3.0~\text{m/s}^2$. In automotive braking, actual vehicle deceleration can transiently exceed the electronic command due to powertrain lag dynamic overshoot ($\tau_a = 0.5~\text{s}$) during rapid deceleration requests, as well as temporary uncompensated disturbance transients before observer convergence ($|e_{d,t}| \le 0.05~\text{m/s}^2$). Road grade forces are explicitly captured in the matched disturbance channel $d_t$ and estimated by the observer $\hat d_t$. Providing $0.5~\text{m/s}^2$ of dynamic headroom in the state envelope prevents artificial constraint clipping during transient braking while maintaining a conservative open-loop jump separation $|u_{\max} - a_{\min}| = 2.5 - (-3.5) = 6.0~\text{m/s}^2$.
+\end{remark}
+
+\section{Uncertainty Propagation and Constraint Tightening}
+
+\subsection{Trajectory-Dependent Uncertainty Propagation}
+
+To avoid the conservatism of static bounding boxes, we propagate an ellipsoidal error bound along the predicted trajectory.
+
+\begin{lemma}[Trajectory-Dependent Uncertainty Bound]
+Let the per-sample acceleration variation satisfy $|a_{i+1} - a_i| \le \bar\delta_a = 0.20~\text{m/s}^2$ (derived under the ISO 15622 longitudinal comfort jerk specification $\dot a_{\mathrm{comf}} = 2.0~\text{m/s}^3$ for sampling period $T_s = 0.1~\text{s}$, with physical actuator saturation envelope $|a_{i+1} - a_i| \le \bar\delta_{a,\mathrm{phys}} = 1.092~\text{m/s}^2$), and let the disturbance observer error satisfy $\|e_d\| \le e_{d,\max} = 0.05~\text{m/s}^2$. Along the nominal predicted trajectory $(\xi_{k|t}, u_{\xi,k|t})$, the perturbation output bound $\bar z_{\xi,k|t}$ is:
+\begin{align}
+\bar z_{\xi,k|t} ={}& \theta_1 \|\Delta v_{\xi,0|t}\| + (k T_s \theta_1 + \theta_2) \|a_{\xi,0|t}\| \nonumber \\
+&{}+ \left(\frac{k(k-1)}{2} T_s \theta_1 + k \theta_2\right) \bar\delta_a + \theta_3 |u_{\xi,k|t}|,
+\label{eq:z_bound}
+\end{align}
+with sensitivity coefficients $\theta_1 = 0.0036~\text{s}^{-2}$, $\theta_2 = 0.1000~\text{s}^{-1}$, and $\theta_3 = 0.0500~\text{s}^{-1}$. 
+
+The scalar uncertainty index $\bar\sigma_{k|t}$ propagates according to:
+\begin{equation}
+\bar\sigma_{k+1|t} = \rho^2 \bar\sigma_{k|t} + \gamma_d e_{d,\max}^2 + \gamma_z \bar z_{\xi,k|t}^2,
+\label{eq:sigma_rec}
+\end{equation}
+where $\rho = 0.9560$ is the error-system spectral decay rate, $\gamma_d = 1.0$ (dimensionless), and $\gamma_z = \tau_0^2 = 1.0~\text{s}^2$ is a dimensioned weighting constant ensuring that both driving terms add in units of $(\text{m/s}^2)^2$.
+\end{lemma}
+
+\begin{IEEEproof}
+We establish the proof in three sequential steps: dimensional homogeneity, kinematic integration and actuator drift bounds, and conservative invariant set containment.
+
+\emph{1) Dimensional Homogeneity:} In continuous time, the perturbation output is $z(t) = C_z x(t) + D_z u(t) = \theta_1 \delta_v(t) + \theta_2 a(t) + \theta_3 u(t)$, where $\theta_1 = 0.0036~\text{s}^{-2}$, $\theta_2 = 0.1000~\text{s}^{-1}$, and $\theta_3 = 0.0500~\text{s}^{-1}$. Multiplying by velocity $[\text{m/s}]$, acceleration $[\text{m/s}^2]$, and commanded input $[\text{m/s}^2]$ verifies that every term has physical units of jerk $[\text{m/s}^3]$. In the discrete-time expression (\ref{eq:z_bound}), since $\bar\delta_a$ represents acceleration variation per sample with physical units $[\bar\delta_a] = [\text{m/s}^2]$, multiplying by $[k \theta_2] = [1 \cdot \text{s}^{-1}]$ gives $[k \theta_2 \bar\delta_a] = [\text{m/s}^3]$. Similarly, $[\frac{k(k-1)}{2} T_s \theta_1 \bar\delta_a] = [\text{s} \cdot \text{s}^{-2} \cdot \text{m/s}^2] = [\text{m/s}^3]$. Multiplying the step index $k$ by $T_s = 0.1~\text{s}$ ensures $[k T_s \theta_1] = [\text{s}\cdot\text{s}^{-2}] = [\text{s}^{-1}] = [\theta_2]$, so every term in (\ref{eq:z_bound}) has homogeneous physical units of jerk $[\text{m/s}^3]$. In the variance recursion (\ref{eq:sigma_rec}), $[e_{d,\max}^2] = [(\text{m/s}^2)^2]$. Weighting $\bar z_{\xi,k|t}^2$ by $\gamma_z = \tau_0^2 = 1.0~\text{s}^2$ yields $[\tau_0^2 \bar z^2] = [\text{s}^2 \cdot \text{m}^2/\text{s}^6] = [(\text{m/s}^2)^2]$, reflecting the continuous powertrain lag $\tau_a = 0.5~\text{s}$ connecting jerk to acceleration.
+
+\emph{2) Discrete Kinematic Integration and Actuator Drift Bounds:} For any prediction step $k \in \{0, \ldots, N-1\}$, discrete integration of the relative velocity dynamic $\dot\delta_v = a_p - a$ along the nominal trajectory (where lead vehicle acceleration $a_{p,i}$ is held at nominal reference) yields:
+\begin{equation}
+\delta_{v,k|t} = \delta_{v,0|t} - T_s \sum_{i=0}^{k-1} a_{i|t}.
+\end{equation}
+The discrete host acceleration evolves under continuous powertrain lag $\dot a(t) = -\frac{1}{\tau_a} a(t) + \frac{1}{\tau_a} u(t) + w_a(t)$ with $\tau_a = 0.5~\text{s}$. Discretizing under Zero-Order Hold with $T_s = 0.1~\text{s}$ gives:
+\begin{equation}
+a_{i+1|t} - a_{i|t} = (1 - e^{-T_s/\tau_a})(u_{i|t} - a_{i|t}) + \int_0^{T_s} e^{-(T_s - s)/\tau_a} w_a(t_i + s)\,ds,
+\end{equation}
+where $1 - e^{-T_s/\tau_a} = 1 - e^{-0.2} = 0.1813$. 
+We characterize the acceleration increment $|a_{i+1|t} - a_{i|t}|$ across two operational domains:
+\begin{enumerate}
+    \item \emph{Comfort-Constrained Domain (ISO 15622):} In standard ACC tracking, the lower-level powertrain control loop enforces passenger ride comfort limits specified by ISO 15622, restricting longitudinal jerk to $\dot a \in [-2.5, 2.0]~\text{m/s}^3$. Over sampling interval $T_s = 0.1~\text{s}$, this imposes $|a_{i+1|t} - a_{i|t}| \le \bar\delta_a = 0.20~\text{m/s}^2$. Furthermore, along nominal MPC predictions, the commanded input rate is constrained by $|\Delta u_{\xi,k|t}| \le \Delta u_{\max} = 0.25~\text{m/s}^2$, which drives the linear tracking error $e_{a,i} = u_i - a_i$ through the stable lag filter $e_{a,i+1} = e^{-T_s/\tau_a} e_{a,i} + \Delta u_i$, keeping nominal acceleration increments strictly bounded by $\bar\delta_a$.
+    \item \emph{Unconstrained Physical Actuator Envelope:} If comfort filtering is relaxed, the physical saturation bounds $u \in [u_{\min}, u_{\max}] = [-3.0, 2.5]~\text{m/s}^2$ and $a \in [a_{\min}, a_{\max}] = [-3.5, 2.5]~\text{m/s}^2$ give $|u_i - a_i| \le |u_{\max} - a_{\min}| = 6.0~\text{m/s}^2$. With disturbance bound $\|w_a\|_\infty \le 0.05~\text{m/s}^2$, the worst-case reachable acceleration increment is:
+    \begin{equation}
+    \bar\delta_{a,\mathrm{phys}} = (1 - e^{-0.2}) \times 6.0 + \tau_a(1 - e^{-0.2}) \|w_a\|_\infty = 1.092~\text{m/s}^2.
+    \end{equation}
+\end{enumerate}
+Under the comfort-constrained bound $|a_{i+1|t} - a_{i|t}| \le \bar\delta_a = 0.20~\text{m/s}^2$, triangle inequality induction yields:
+\begin{align}
+|a_{k|t}| &\le |a_{0|t}| + k \bar\delta_a, \\
+\left|\sum_{i=0}^{k-1} a_{i|t}\right| &\le \sum_{i=0}^{k-1} (|a_{0|t}| + i \bar\delta_a) = k |a_{0|t}| + \frac{k(k-1)}{2} \bar\delta_a.
+\end{align}
+Multiplying the cumulative sum by $T_s$ from velocity integration yields:
+\begin{equation}
+|\delta_{v,k|t}| \le |\delta_{v,0|t}| + k T_s |a_{0|t}| + T_s \frac{k(k-1)}{2} \bar\delta_a.
+\end{equation}
+Forming the linear combination $\theta_1 |\delta_{v,k|t}| + \theta_2 |a_{k|t}|$ and collecting terms:
+\begin{align}
+\theta_1 |\delta_{v,k|t}| + \theta_2 |a_{k|t}| \le{}& \theta_1 \|\Delta v_{\xi,0|t}\| + (k T_s \theta_1 + \theta_2) \|a_{\xi,0|t}\| \nonumber \\
+&{}+ \left(\frac{k(k-1)}{2} T_s \theta_1 + k \theta_2\right) \bar\delta_a.
+\end{align}
+Adding the nominal input channel $\theta_3 |u_{\xi,k|t}|$ analytically proves that $|z_{k|t}| \le \bar z_{\xi,k|t}$ holds along every comfort-compliant admissible trajectory.
+
+\emph{3) Conservative Invariant Set Containment:} Under the linear fractional perturbation structure $w_k = \Delta z_k$ with $\|\Delta\| \le 1$, we have $\|w_k\|^2 \le |z_k|^2 \le \bar z_{\xi,k|t}^2$. Defining the Lyapunov candidate $V_k = e_{\xi,k}^\top P e_{\xi,k}$, Theorem~1 guarantees that the discrete dissipation inequality holds:
+\begin{equation}
+V_{k+1} - \rho^2 V_k \le \gamma_d \|e_{d,k}\|^2 + \gamma_z \|w_k\|^2 \le \gamma_d e_{d,\max}^2 + \gamma_z \bar z_{\xi,k|t}^2.
+\end{equation}
+Assume by induction that at step $k$, $V_k \le \bar\sigma_{k|t}$. Then:
+\begin{equation}
+V_{k+1} \le \rho^2 \bar\sigma_{k|t} + \gamma_d e_{d,\max}^2 + \gamma_z \bar z_{\xi,k|t}^2 = \bar\sigma_{k+1|t}.
+\end{equation}
+Because the initial error satisfies $V_0 = e_{\xi,0}^\top P e_{\xi,0} \le \bar\sigma_{0|t}$, mathematical induction establishes that $e_{\xi,k}^\top P e_{\xi,k} \le \bar\sigma_{k|t}$ for all $k = 0, \ldots, N$. Thus, the ellipsoidal tube $\mathcal{E}(P, \bar\sigma_{k|t})$ conservatively and rigorously contains the true tracking error along the entire predicted horizon.
+\end{IEEEproof}
+
+\begin{remark}[Dimensional Consistency and Rigorous Acceleration Drift Envelopes]
+We clarify the physical dimensions and operating regimes governing the acceleration variation bound:
+\begin{enumerate}
+    \item \emph{Dimensional Consistency:} In (\ref{eq:z_bound}), the bracketed coefficient $\left(\frac{k(k-1)}{2} T_s \theta_1 + k \theta_2\right)$ has physical dimension $[\text{s} \cdot \text{s}^{-2}] = [\text{s}^{-1}] = [\theta_2]$. Multiplying by the per-sample acceleration variation $\bar\delta_a \in [\text{m/s}^2]$ yields $[\text{s}^{-1} \cdot \text{m/s}^2] = [\text{m/s}^3]$ (jerk), exactly matching the dimension of the continuous perturbation output $z(t) = \theta_1 \delta_v(t) + \theta_2 a(t) + \theta_3 u(t)$. Equivalently, if defined in terms of continuous longitudinal jerk bound $\bar j_a = 2.0~\text{m/s}^3$ (ISO 15622), the per-sample increment is $\bar\delta_a = T_s \bar j_a = 0.20~\text{m/s}^2$, and the bound is written as $\left(\frac{k(k-1)}{2} T_s^2 \theta_1 + k T_s \theta_2\right) \bar j_a$, preserving exact dimensional homogeneity.
+    \item \emph{Unconditional Physical Envelope:} Under arbitrary open-loop actuator commands $(u_i, a_i, w_a) \in [u_{\min}, u_{\max}] \times [a_{\min}, a_{\max}] \times [-w_{a,\max}, w_{a,\max}]$, the discrete update yields:
+    \begin{equation}
+    |a_{i+1} - a_i| \le (1 - e^{-T_s/\tau_a}) |u_{\max} - a_{\min}| + \tau_a(1 - e^{-T_s/\tau_a}) w_{a,\max} = \bar\delta_{a,\mathrm{phys}} = 1.0921~\text{m/s}^2.
+    \end{equation}
+    Substituting $\bar\delta_{a,\mathrm{phys}} = 1.0921~\text{m/s}^2$ into (\ref{eq:z_bound}) and (\ref{eq:sigma_rec}) scales the peak predicted variance to $\bar\sigma_{\mathrm{peak}} = 8.5075$, which remains strictly bounded within the LMI-synthesized invariant set capacity $\sigma^* = 13.2482$. As confirmed in Section~V-C, Variant~E retains 100.0\% QP feasibility and zero slew-rate violations even under this extreme open-loop bound.
+    \item \emph{Closed-Loop Slew-Rate Reachability:} Along the nominal MPC horizon, the optimizer enforces the slew limit $|\Delta u_{\xi,k|t}| \le \Delta u_{\max} = 0.25~\text{m/s}^2$. The resulting tracking error lag evolves as $e_{a,i+1} = e^{-T_s/\tau_a} e_{a,i} + \Delta u_i$, which yields a steady-state acceleration ramp bound of $\Delta u_{\max} = 0.25~\text{m/s}^2$, and over the receding horizon $N = 6$ keeps reachable increments bounded by $\bar\delta_a = 0.20~\text{m/s}^2$.
+\end{enumerate}
+\end{remark}
+
+\subsection{Nominal Constraint Tightening}
+
+Given the ellipsoidal invariant tube $\mathcal{E}_\xi(\bar\sigma_{k|t}) = \{e_\xi \in \mathbb{R}^3 : e_\xi^\top P_\xi e_\xi \le \bar\sigma_{k|t}\}$, the state and input constraints are tightened via the support function:
+\begin{equation}
+g_x(i) = \sqrt{H_x(i,:) P_\xi^{-1} H_x(i,:)^\top}, \quad g_u = \sqrt{K P_\xi^{-1} K^\top},
+\end{equation}
+where $P_\xi = P_{11} - P_{12} P_{22}^{-1} P_{12}^\top = (P^{-1})_{11}^{-1} \succ 0$ is the Schur-complement projection of the augmented Lyapunov matrix $P \in \mathbb{R}^{6 \times 6}$ onto the 3-state tracking error coordinates $e_\xi \in \mathbb{R}^3$.
+The tightened nominal state constraints are:
+\begin{equation}
+H_x(i,:) \xi_{k|t} \le h_x(i) - g_x(i) \sqrt{\bar\sigma_{k|t}}, \quad \forall k = 1, \ldots, N.
+\end{equation}
+
+For future predicted inputs ($k \ge 1$), accounting for ancillary feedback $K e_{\xi}$ and disturbance compensation $-\hat d_t$, the tightened nominal bounds are:
+\begin{equation}
+u_{\min} + g_u \sqrt{\bar\sigma_{k|t}} + \hat d_t \le u_{\xi,k|t} \le u_{\max} - g_u \sqrt{\bar\sigma_{k|t}} + \hat d_t.
+\label{eq:tight_future_u}
+\end{equation}
+\begin{remark}
+Both lower and upper bounds in (\ref{eq:tight_future_u}) require a \textbf{positive offset} $+\hat d_t$. Since $u_{\mathrm{raw}} = u_\xi + K e_\xi - \hat d_t \in [u_{\min}, u_{\max}]$, shifting $-\hat d_t$ across the inequality yields $u_\xi + K e_\xi \in [u_{\min} + \hat d_t, u_{\max} + \hat d_t]$, confirming the formulation.
+\end{remark}
+
+The admissible nominal input interval width at step $k$ is:
+\begin{equation}
+w_{k|t} = u_{\max} - u_{\min} - 2 g_u \sqrt{\bar\sigma_{k|t}}.
+\end{equation}
+The interval collapses if the uncertainty index reaches or exceeds the input-tightening collapse threshold:
+\begin{equation}
+\sigma^* = \left(\frac{u_{\max} - u_{\min}}{2 g_u}\right)^2.
+\end{equation}
+Specifically, for $\bar\sigma_{k|t} < \sigma^*$, the nominal input interval retains strictly positive width ($w_{k|t} > 0$), which is a necessary condition for input admissibility without guaranteeing overall QP feasibility. At equality $\bar\sigma_{k|t} = \sigma^*$, the interval collapses to a singleton ($w_{k|t} = 0$), whose feasibility depends on whether that exact input is compatible with state constraints and slew limits. For $\bar\sigma_{k|t} > \sigma^*$, the interval is strictly empty ($w_{k|t} < 0$), guaranteeing QP infeasibility. For Candidate 2 ($g_u = 0.755533$), $\sigma^* = 13.2482$, providing a 21.66\% wider input admissibility margin than the baseline candidate ($\sigma^* = 10.8893$).
+
+\section{LMI-Verified Gain Selection and Invariance Properties}
+
+\subsection{Error System and LMI Analysis Certificate}
+
+Define the closed-loop error transition matrix $\Phi_K = \Phi + \Gamma K$. The augmented error dynamics $\eta_t = [e_{\xi,t}^\top, \tilde x_t^\top]^\top$ under observer gain $L$ are governed by:
+\begin{equation}
+\eta_{t+1} = \Phi_e \eta_t + \Gamma_{ew} w_t + \Gamma_{ed} e_{d,t},
+\end{equation}
+where $\Phi_e = \begin{bmatrix} \Phi_K & -\Gamma K \\ 0 & \Phi - L C \end{bmatrix}$.
+
+\begin{theorem}[LMI Error-System Certificate and Contractive Reachability Tube]
+Let $\rho \in (0, 1)$, $\gamma > 0$, and let multiplier $\widetilde{M} \succeq \lambda \begin{bmatrix} I & 0 \\ 0 & -I \end{bmatrix}$ with $\lambda > 0$. If there exists a symmetric matrix $P \succ 0$ satisfying the linear matrix inequality:
+\begin{equation}
+\mathcal{L}(P, \widetilde{M}, \lambda) = \begin{bmatrix}
+\Phi_e^\top P \Phi_e - \rho^2 P & \Phi_e^\top P \Gamma_{ew} & \Phi_e^\top P \Gamma_{ed} & 0 \\
+\star & \Gamma_{ew}^\top P \Gamma_{ew} & \Gamma_{ew}^\top P \Gamma_{ed} & 0 \\
+\star & \star & \Gamma_{ed}^\top P \Gamma_{ed} - \gamma & 0 \\
+0 & 0 & 0 & -\gamma
+\end{bmatrix} + C_s^\top \widetilde{M} C_s \prec 0,
+\label{eq:lmi}
+\end{equation}
+then:
+\begin{enumerate}
+    \item The unforced error dynamics $\eta_{k+1} = \Phi_e \eta_k$ are Schur stable with spectral radius $\rho(\Phi_e) \le \rho < 1$.
+    \item Along the prediction horizon, the Lyapunov function $V(\eta_k) = \eta_k^\top P \eta_k$ satisfies the contractive dissipation inequality:
+    \begin{equation}
+    V(\eta_{k+1}) \le \rho^2 V(\eta_k) + \gamma \|e_{d,k}\|^2 + \gamma \|z_{\xi,k}\|^2.
+    \end{equation}
+    \item If initial tracking error satisfies $\eta_0^\top P \eta_0 \le \bar\sigma_{0|t}$, the time-varying ellipsoidal reach set $\mathcal{E}(P, \bar\sigma_{k|t}) = \{\eta : \eta^\top P \eta \le \bar\sigma_{k|t}\}$ strictly bounds the reachable error state, $\eta_{k|t} \in \mathcal{E}(P, \bar\sigma_{k|t})$, for all $k \in \{0, \ldots, N\}$.
+\end{enumerate}
+\end{theorem}
+
+\begin{IEEEproof}
+Define the augmented dissipation vector $s_k = [\eta_k^\top, w_k^\top, e_{d,k}^\top, z_{\xi,k}^\top]^\top$. In the presence of linear fractional uncertainty $w_k = \Delta z_k$ with $\|\Delta\| \le 1$, the norm-bounding quadratic constraint is $\|w_k\|^2 \le \|z_k\|^2 \iff [z_k^\top, w_k^\top] \begin{bmatrix} I & 0 \\ 0 & -I \end{bmatrix} \begin{bmatrix} z_k \\ w_k \end{bmatrix} \ge 0$. Using the output relation $[z_k^\top, w_k^\top]^\top = C_s s_k$, this is expressed as $s_k^\top C_s^\top \widetilde{M} C_s s_k \ge 0$ for multiplier $\widetilde{M} \succeq \lambda \operatorname{diag}(I, -I)$ with $\lambda > 0$. By the S-procedure, satisfaction of the linear matrix inequality $\mathcal{L}(P, \widetilde{M}, \lambda) \prec 0$ in (\ref{eq:lmi}) is sufficient to guarantee the contractive dissipation condition $V(\eta_{k+1}) - \rho^2 V(\eta_k) - \gamma \|e_{d,k}\|^2 - \gamma \|z_{\xi,k}\|^2 < 0$ for all admissible perturbations. Setting $w_k = 0$ and $e_{d,k} = 0$ yields $\Phi_e^\top P \Phi_e - \rho^2 P \prec 0$, establishing Schur stability $\rho(\Phi_e) \le \rho < 1$ of the autonomous augmented error system.
+
+Partition the symmetric positive-definite matrix $P \in \mathbb{R}^{6 \times 6}$ compatibly with $\eta = [e_\xi^\top, \tilde x^\top]^\top$ ($e_\xi, \tilde x \in \mathbb{R}^3$):
+\begin{equation}
+P = \begin{bmatrix} P_{11} & P_{12} \\ P_{12}^\top & P_{22} \end{bmatrix} \succ 0.
+\end{equation}
+The projection of the augmented error ellipsoid $\mathcal{E}(P, \bar\sigma_{k|t}) = \{\eta \in \mathbb{R}^6 : \eta^\top P \eta \le \bar\sigma_{k|t}\}$ onto tracking error coordinates $e_\xi \in \mathbb{R}^3$ is defined by the Schur complement:
+\begin{equation}
+P_\xi \triangleq P_{11} - P_{12} P_{22}^{-1} P_{12}^\top \succ 0.
+\end{equation}
+Completing the square with respect to observer estimation error $\tilde x$ yields:
+\begin{align}
+\eta^\top P \eta - e_\xi^\top P_\xi e_\xi &= e_\xi^\top P_{12} \tilde x + \tilde x^\top P_{12}^\top e_\xi + \tilde x^\top P_{22} \tilde x + e_\xi^\top P_{12} P_{22}^{-1} P_{12}^\top e_\xi \nonumber \\
+&= (P_{12}^\top e_\xi + P_{22} \tilde x)^\top P_{22}^{-1} (P_{12}^\top e_\xi + P_{22} \tilde x) \ge 0,
+\end{align}
+proving $e_\xi^\top P_\xi e_\xi \le \eta^\top P \eta \le \bar\sigma_{k|t}$. By the block matrix inversion theorem, $P_\xi^{-1} = (P^{-1})_{11}$. Maximizing the linear functional $H_x(i,:) e_\xi$ over the projected ellipsoid $\{e_\xi : e_\xi^\top P_\xi e_\xi \le \bar\sigma_{k|t}\}$ yields the support function:
+\begin{equation}
+\max_{e_\xi^\top P_\xi e_\xi \le \bar\sigma_{k|t}} H_x(i,:) e_\xi = \sqrt{H_x(i,:) P_\xi^{-1} H_x(i,:)^\top} \sqrt{\bar\sigma_{k|t}} = g_x(i) \sqrt{\bar\sigma_{k|t}}.
+\end{equation}
+Consequently, when the nominal MPC trajectory satisfies the tightened constraint $H_x(i,:) \xi_{k|t} \le h_x(i) - g_x(i) \sqrt{\bar\sigma_{k|t}}$, the true vehicle state $x_{k|t} = \xi_{k|t} + e_{\xi,k|t}$ satisfies $H_x(i,:) x_{k|t} \le h_x(i)$.
+
+We emphasize the separation of theoretical guarantees: the LMI certificate strictly establishes the Schur stability of the augmented error dynamics and the contractive invariance of the reachability tube $\mathcal{E}(P, \bar\sigma_{k|t})$. Robust closed-loop constraint satisfaction $x_t \in \mathcal{X}$ along with actuator compliance additionally requires that the nominal MPC quadratic program remains feasible at each sampling instant $t$. In this context, $\bar\sigma_{k|t} < \sigma^*$ acts as an \emph{input-tightening collapse threshold} (a necessary condition guaranteeing a non-empty nominal input interval $w_{k|t} > 0$), rather than a sufficient condition for overall QP feasibility, which can also be compromised by state constraints, slew limits, or aggressive braking maneuvers. When the QP is infeasible, safe rate-bounded operation is maintained by the deterministic fallback filter (Proposition 2).
+\end{IEEEproof}
+
+\subsection{Numerical Certificate Report}
+
+For Candidate 2 ($R=50$), the LMI problem was solved in MATLAB using SDPT3 via YALMIP. The certified ancillary feedback gain is:
+\begin{equation}
+K_{\mathrm{opt}} = [1.2345, -0.5985, -1.2588].
+\end{equation}
+The resulting Lyapunov matrix $P \in \mathbb{R}^{6 \times 6}$ certifies the 6-state augmented error dynamics $\eta_t = [e_{\xi,t}^\top, \tilde x_t^\top]^\top$. The numerical audit confirmed:
+\begin{itemize}
+    \item Minimum eigenvalue: $\lambda_{\min}(P) = 1.5629 > 0$ (strictly positive definite).
+    \item Maximum eigenvalue: $\lambda_{\max}(P) = 2.3231 \times 10^4$.
+    \item Condition number: $\operatorname{cond}(P) = 1.4864\times 10^4$.
+    \item Spectral radius: $\rho(\Phi_e) = 0.9560 < 1.0$ (Schur stable).
+    \item Maximum LMI eigenvalue: $\lambda_{\max}(\mathcal{L}) = -1.0011\times 10^{-6} < 0$.
+    \item Multiplier margin: $\lambda_{\min}(\widetilde{M}) - \lambda = 1.0\times 10^{-6} > 0$.
+    \item Support function bound: $g_u = \sqrt{K_{\mathrm{opt}} P_\xi^{-1} K_{\mathrm{opt}}^\top} = \sqrt{K_{\mathrm{opt}} (P^{-1})_{11} K_{\mathrm{opt}}^\top} = 0.755533$.
+\end{itemize}
+\begin{remark}
+Because $\lambda_{\max}(\mathcal{L}) \approx -10^{-6}$ lies near the numerical solver tolerance, this certificate represents an \textbf{interior near-boundary certificate} achieved while minimizing the support function $g_u = 0.755533$. We transparently describe this as an \emph{LMI-verified gain selection} rather than an unconstrained co-design.
+\end{remark}
+
+\subsection{Step-0 Applied-Input Magnitude and Slew Enforcement}
+
+To guarantee that the applied command $u_{\mathrm{applied},t}$ satisfies physical actuator limits, we condition the first nominal decision $u_{\xi,0|t}$ directly. We state the implementation assumptions governing the actuator interface:
+
+\begin{assumption}[Actuator Command Interface and Saturation]
+\label{ass:actuator}
+\begin{enumerate}
+    \item The total raw command delivered to the lower-level ECU is formed at a physical summing junction: $u_{\mathrm{raw},t} = u_{\xi,\mathrm{cmd}} + K e_{\xi,t} - \hat d_t \equiv u_{\xi,\mathrm{cmd}} + c_t$, where $c_t$ is computed from the state estimate and disturbance observer prior to actuation.
+    \item Physical actuator saturation is memoryless: $u_{\mathrm{applied},t} = \operatorname{sat}_{[u_{\min}, u_{\max}]}(u_{\mathrm{raw},t})$.
+    \item The previous applied command satisfies $u_{\mathrm{applied},t-1} \in [u_{\min}, u_{\max}]$ (which holds inductively given initial resting condition $u_{\mathrm{applied},-1} \in [u_{\min}, u_{\max}]$).
+\end{enumerate}
+\end{assumption}
+
+\begin{proposition}[Applied-Input Constraint Satisfaction in Nominal Mode]
+Under Assumption~\ref{ass:actuator}, let $c_t = K e_{\xi,t} - \hat d_t$. Define the step-0 nominal bounds:
+\begin{align}
+u_{\xi 0,\mathrm{LB}} &= \max\left(u_{\min} - c_t, \, u_{\mathrm{applied},t-1} - \Delta u_{\max} - c_t, \, u_{\min} + \hat d_t\right), \label{eq:step0_lb} \\
+u_{\xi 0,\mathrm{UB}} &= \min\left(u_{\max} - c_t, \, u_{\mathrm{applied},t-1} + \Delta u_{\max} - c_t, \, u_{\max} + \hat d_t\right). \label{eq:step0_ub}
+\end{align}
+If the nominal QP is feasible at sample $t$, commanding $u_{\xi,\mathrm{cmd}} = u_{\xi,0|t}$ strictly guarantees:
+\begin{equation}
+u_{\min} \le u_{\mathrm{applied},t} \le u_{\max}, \quad |u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1}| \le \Delta u_{\max}.
+\end{equation}
+\end{proposition}
+
+\begin{IEEEproof}
+Whenever the QP is feasible, the optimizer enforces $u_{\xi 0,\mathrm{LB}} \le u_{\xi,0|t} \le u_{\xi 0,\mathrm{UB}}$ as hard linear inequalities ($A_{\mathrm{ineq}} \Delta \mathbf{U} \le b_{\mathrm{tight}}$). Adding $c_t$ across (\ref{eq:step0_lb}) and (\ref{eq:step0_ub}) yields:
+\begin{align}
+u_{\mathrm{raw},t} &\ge \max\left(u_{\min}, \, u_{\mathrm{applied},t-1} - \Delta u_{\max}\right) \ge u_{\min}, \\
+u_{\mathrm{raw},t} &\le \min\left(u_{\max}, \, u_{\mathrm{applied},t-1} + \Delta u_{\max}\right) \le u_{\max}.
+\end{align}
+Because $u_{\mathrm{raw},t} \in [u_{\min}, u_{\max}]$, actuator saturation is inactive, so $u_{\mathrm{applied},t} = u_{\mathrm{raw},t}$. Subtracting $u_{\mathrm{applied},t-1}$ from both sides directly yields $-\Delta u_{\max} \le u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1} \le \Delta u_{\max}$, establishing slew compliance without interior clipping.
+\end{IEEEproof}
+
+\subsection{Slew-Invariant Fallback Mechanism and Transition Guarantees}
+
+If the QP is infeasible or $\bar\sigma_{0|t} > \sigma^*$, the controller enters fallback mode:
+\begin{equation}
+u_{\mathrm{fallback},t} = \max\left(u_{\min}, \, u_{\mathrm{applied},t-1} - \Delta u_{\max}\right).
+\label{eq:fallback}
+\end{equation}
+To inject this command through the hardware channel that inherently adds $c_t$, the controller commands:
+\begin{equation}
+u_{\xi,\mathrm{cmd}} = u_{\mathrm{fallback},t} - c_t.
+\label{eq:fallback_cmd}
+\end{equation}
+
+\begin{proposition}[Rate and Amplitude Guarantees of Fallback Transitions]
+Under Assumption~\ref{ass:actuator}, commanding $u_{\xi,\mathrm{cmd}}$ according to (\ref{eq:fallback_cmd}) guarantees:
+\begin{enumerate}
+    \item \emph{Amplitude and Slew Invariance in Fallback:} The applied command satisfies $u_{\mathrm{applied},t} \in [u_{\min}, u_{\max}]$ and $|u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1}| \le \Delta u_{\max}$.
+    \item \emph{Bidirectional Transition Compliance:} Transitions into fallback at sample $t$, consecutive fallback executions, and transitions back to nominal MPC at sample $t+1$ strictly satisfy the per-sample slew-rate limit $\Delta u_{\max}$.
+\end{enumerate}
+\end{proposition}
+
+\begin{IEEEproof}
+At the physical summing junction:
+\begin{equation}
+u_{\mathrm{raw},t} = u_{\xi,\mathrm{cmd}} + c_t = (u_{\mathrm{fallback},t} - c_t) + c_t = u_{\mathrm{fallback},t}.
+\end{equation}
+By Assumption~\ref{ass:actuator}, $u_{\mathrm{applied},t-1} \in [u_{\min}, u_{\max}]$. Since $\Delta u_{\max} > 0$, (\ref{eq:fallback}) implies $u_{\min} \le u_{\mathrm{fallback},t} \le u_{\mathrm{applied},t-1} \le u_{\max}$. Thus $u_{\mathrm{raw},t} \in [u_{\min}, u_{\max}]$ and saturation does not clip ($u_{\mathrm{applied},t} = u_{\mathrm{fallback},t}$). The per-sample change is $u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1} = \max(u_{\min} - u_{\mathrm{applied},t-1}, -\Delta u_{\max}) \in [-\Delta u_{\max}, 0]$, proving $|u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1}| \le \Delta u_{\max}$.
+
+For transitions out of fallback at $t+1$, the rate-compliance guarantee relies on the dual-mode controller architecture:
+\begin{enumerate}
+    \item If the nominal QP at sample $t+1$ is primal feasible and enforces the hard step-0 bounds (\ref{eq:step0_lb})--(\ref{eq:step0_ub}) referenced to $u_{\mathrm{applied},t}$ (the previous applied fallback command), then by Proposition~1, $|u_{\mathrm{applied},t+1} - u_{\mathrm{applied},t}| \le \Delta u_{\max}$.
+    \item If the nominal QP at sample $t+1$ is infeasible or poorly conditioned, the controller remains in fallback mode, evaluating $u_{\mathrm{fallback},t+1} = \max(u_{\min}, u_{\mathrm{applied},t} - \Delta u_{\max})$, which unconditionally satisfies $|u_{\mathrm{applied},t+1} - u_{\mathrm{applied},t}| \le \Delta u_{\max}$.
+\end{enumerate}
+Thus, whether the system transitions back to nominal MPC or persists in fallback, the per-sample increment limit $\Delta u_{\max}$ is strictly and inductively preserved across every possible transition sequence.
+\end{IEEEproof}
+
+\begin{remark}
+Proposition~2 proves \textbf{actuator rate compliance and monotonic deceleration toward $u_{\min}$}, not collision avoidance. Safe inter-vehicle clearance depends on initial headway, relative velocity, lead vehicle braking intensity, and road friction. Actuator compliance prevents secondary instability or chatter; physical collision avoidance must be verified across the operational envelope.
+\end{remark}
+
+\section{Simulation and Ablation Study}
+
+\subsection{Simulation Setup and Core Benchmarks}
+
+The control architecture is evaluated in MATLAB/Simulink R2025b under a standardized protocol. Five controller configurations are evaluated:
+\begin{itemize}
+    \item \textbf{Variant A (Baseline Static):} Static bound ($\bar u = 3.0$), no step-0 conditioning, reference gain $K_{\mathrm{paper}} = [2.4855, -0.2200, -2.0959]$.
+    \item \textbf{Variant B (Trajectory Bound Only):} Trajectory-dependent bound, no step-0 conditioning, reference gain $K_{\mathrm{paper}}$.
+    \item \textbf{Variant C (Static + Step-0):} Static bound, step-0 conditioning, reference gain $K_{\mathrm{paper}}$ (equivalent to aerospace double-tightening).
+    \item \textbf{Variant D (Proposed Structure, Ref Gain):} Trajectory-dependent bound, step-0 conditioning, reference gain $K_{\mathrm{paper}}$.
+    \item \textbf{Variant E (Proposed Co-Designed):} Trajectory-dependent bound, step-0 conditioning, LMI-verified gain $K_{\mathrm{opt}} = [1.2345, -0.5985, -1.2588]$.
+\end{itemize}
+
+Four core benchmarks are evaluated across a 5.0~s horizon ($N_{\mathrm{eval}} = 51$ steps):
+\begin{itemize}
+    \item \textbf{Core-1 (Nominal Equilibrium):} $x_0 = [0, 0, 0]^\top$, $a_p = 0$, $w = 0$.
+    \item \textbf{Core-2 (Spacing Gap Transient):} $x_0 = [-10.0~\text{m}, 0, 0]^\top$ (initial gap $14.0~\text{m}$ vs desired $24.0~\text{m}$), $a_p = 0$.
+    \item \textbf{Core-3 (Moderate Lead Braking):} $x_0 = [0, 0, 0]^\top$, lead deceleration pulse $a_p = -1.0~\text{m/s}^2$ for $t \in [1.0, 3.0]~\text{s}$.
+    \item \textbf{Core-4 (Severe Braking + Continuous Wind):} $x_0 = [0, 0, 0]^\top$, $a_p = -3.0~\text{m/s}^2$ for $t \in [1.0, 3.0]~\text{s}$, wind gust $v_w = 15.0~\text{m/s}$ ($\Delta d_{\mathrm{aero}} = 1.35~\text{m/s}^2$).
+\end{itemize}
+
+\subsection{Five-Variant Ablation Results}
+
+Table~\ref{tab:ablation_core3} reports the verified numerical results for Core-3 extracted from the archived dataset \texttt{stage46\_ablation\_results.mat}.
+
+\begin{table*}[t]
+\centering
+\caption{Verified Five-Variant Ablation Results on Core-3 Benchmark (Moderate Braking Pulse $a_p = -1.0~\text{m/s}^2$)}
+\label{tab:ablation_core3}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Performance Metric} & \textbf{Variant A} & \textbf{Variant B} & \textbf{Variant C} & \textbf{Variant D} & \textbf{Variant E} \\
+\midrule
+Uncertainty Bound Formulation & Static ($\bar u = 3.0$) & Trajectory-Coupled & Static ($\bar u = 3.0$) & Trajectory-Coupled & Trajectory-Coupled \\
+Step-0 Applied Constraints & No & No & Yes & Yes & Yes \\
+Feedback Gain Vector & $K_{\mathrm{paper}}$ & $K_{\mathrm{paper}}$ & $K_{\mathrm{paper}}$ & $K_{\mathrm{paper}}$ & $K_{\mathrm{opt}}$ \\
+\midrule
+QP Feasibility Ratio $\eta_{\mathrm{feas}}$ & 100.0\% (51/51) & 100.0\% (51/51) & \textbf{33.3\%} (17/51) & \textbf{86.3\%} (44/51) & \textbf{100.0\%} (51/51) \\
+Fallback Activations ($N_{\mathrm{FB}}$) & 0 & 0 & \textbf{34} & \textbf{7} & \textbf{0} \\
+Max Slew Violation $r_{\Delta u}^{\max}$ ($\text{m/s}^2$) & \textbf{0.3539} & \textbf{0.3539} & \textbf{0.0000} & \textbf{0.0000} & \textbf{0.0000} \\
+Min Tightened Interval $w_{\min}$ ($\text{m/s}^2$) & +2.6545 & +4.7883 & \textbf{--1.6025} (Collapsed) & \textbf{--0.0847} & \textbf{+0.1963} (Open) \\
+Peak Uncertainty Index $\bar\sigma_{\mathrm{peak}}$ & 3.7925 & \textbf{0.3405} & 22.1476 & 7.1465 & \textbf{0.3915} \\
+Spacing Tracking RMSE (m) & 0.3205 & 0.3205 & 5.9716 & 0.8252 & \textbf{0.5108} \\
+Control Energy $\sum u^2$ & 7.7596 & 7.7596 & 22.4468 & 7.0781 & \textbf{6.4687} \\
+Control Total Variation $\mathrm{TV}(u)$ ($\text{m/s}^2$) & 7.4788 & 7.4787 & 4.6879 & 6.8840 & \textbf{3.8620} (--48.4\%) \\
+Median QP Solve Time (ms) & 58.43 & 96.18 & 0.19 & 184.54 & 103.99 \\
+Minimum Clearance $l_{\min}$ (m) & 32.50 & 32.50 & 34.64 & 32.64 & 32.69 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\caption{Verified Five-Variant Ablation Results on Core-2 Benchmark (Spacing Gap Transient $x_0 = [-10.0, 0, 0]^\top$)}
+\label{tab:ablation_core2}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Performance Metric} & \textbf{Variant A} & \textbf{Variant B} & \textbf{Variant C} & \textbf{Variant D} & \textbf{Variant E} \\
+\midrule
+QP Feasibility Ratio $\eta_{\mathrm{feas}}$ & 19.6\% (10/51) & 19.6\% (10/51) & 19.6\% (10/51) & 19.6\% (10/51) & 19.6\% (10/51) \\
+Fallback Activations ($N_{\mathrm{FB}}$) & 41 & 41 & 41 & 41 & 41 \\
+Max Slew Violation $r_{\Delta u}^{\max}$ ($\text{m/s}^2$) & \textbf{0.0207} & \textbf{0.0818} & \textbf{0.0000} & \textbf{0.0000} & \textbf{0.0000} \\
+Min Tightened Interval $w_{\min}$ ($\text{m/s}^2$) & --4.2564 & --3.9658 & --4.2855 & --3.3477 & \textbf{--3.1783} \\
+Spacing Tracking RMSE (m) & 6.5072 & 5.8598 & 6.5380 & 5.7037 & 5.7529 \\
+Control Energy $\sum u^2$ & 13.8574 & 11.1322 & 14.0847 & \textbf{9.4378} & 10.0283 \\
+Control Total Variation $\mathrm{TV}(u)$ ($\text{m/s}^2$) & 5.4794 & 7.1079 & 5.4379 & 6.8637 & 6.8094 \\
+Minimum Clearance $l_{\min}$ (m) & 39.26 & 38.61 & 39.27 & 38.66 & 38.63 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}[t]
+\centering
+\caption{Verified Five-Variant Ablation Results on Core-1 (Nominal Equilibrium) and Core-4 (Severe Braking + Active Wind Gust) Benchmarks}
+\label{tab:ablation_core1_4}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Performance Metric} & \textbf{Variant A} & \textbf{Variant B} & \textbf{Variant C} & \textbf{Variant D} & \textbf{Variant E} \\
+\midrule
+\multicolumn{6}{c}{\textit{Panel A: Core-1 Benchmark (Nominal Equilibrium: $x_0 = [0, 0, 0]^\top, a_p = 0, w = 0$)}} \\
+\midrule
+QP Feasibility Ratio $\eta_{\mathrm{feas}}$ & 100.0\% (51/51) & 100.0\% (51/51) & 100.0\% (51/51) & 100.0\% (51/51) & 100.0\% (51/51) \\
+Fallback Activations ($N_{\mathrm{FB}}$) & 0 & 0 & 0 & 0 & 0 \\
+Max Slew Violation $r_{\Delta u}^{\max}$ ($\text{m/s}^2$) & \textbf{0.0000} & \textbf{0.0000} & \textbf{0.0000} & \textbf{0.0000} & \textbf{0.0000} \\
+Min Tightened Interval $w_{\min}$ ($\text{m/s}^2$) & +2.7267 & +4.8764 & +0.5000 & +0.5000 & \textbf{+0.5000} \\
+Peak Uncertainty Index $\bar\sigma_{\mathrm{peak}}$ & 3.6038 & \textbf{0.2758} & 3.6038 & \textbf{0.2758} & \textbf{0.2784} ($-92.3\%$) \\
+Spacing Tracking RMSE (m) & 0.0000 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+Control Total Variation $\mathrm{TV}(u)$ ($\text{m/s}^2$) & 0.0000 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+Median QP Solve Time (ms) & 83.42 & 112.88 & 60.72 & 114.71 & 106.06 \\
+Minimum Clearance $l_{\min}$ (m) & 35.00 & 35.00 & 35.00 & 35.00 & 35.00 \\
+\midrule
+\multicolumn{6}{c}{\textit{Panel B: Core-4 Benchmark (Severe Braking $a_p = -3.0~\text{m/s}^2$ + Active Wind Gust $v_w = 15.0~\text{m/s}$, $\Delta d_{\mathrm{aero}} = 1.35~\text{m/s}^2$)}} \\
+\midrule
+QP Feasibility Ratio $\eta_{\mathrm{feas}}$ & 0.0\% (0/51) & 3.9\% (2/51) & 0.0\% (0/51) & 3.9\% (2/51) & \textbf{5.9\%} (3/51) \\
+Fallback Activations ($N_{\mathrm{FB}}$) & 51 & 49 & 51 & 49 & \textbf{48} \\
+Max Slew Violation $r_{\Delta u}^{\max}$ ($\text{m/s}^2$) & \textbf{0.0000} & \textbf{0.0074} & \textbf{0.0000} & \textbf{0.0000} & \textbf{0.0000} \\
+Min Tightened Interval $w_{\min}$ ($\text{m/s}^2$) & --15.0387 & --17.5360 & --4.4474 & --4.4474 & \textbf{--3.5086} \\
+Peak Uncertainty Index $\bar\sigma_{\mathrm{peak}}$ & 189.68 & 231.24 & 17.72 & 9.67 & \textbf{9.43} ($-95.0\%$) \\
+Spacing Tracking RMSE (m) & 9.6972 & 9.6998 & 9.6972 & 9.6972 & 9.7496 \\
+Control Energy $\sum u^2$ & 31.9625 & 32.0066 & 31.9625 & 31.9625 & 32.7946 \\
+Control Total Variation $\mathrm{TV}(u)$ ($\text{m/s}^2$) & 3.0000 & 3.0000 & 3.0000 & 3.0000 & 3.0000 \\
+Minimum Clearance $l_{\min}$ (m) & 36.04 & 36.04 & 36.04 & 36.04 & \textbf{36.16} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Key insights emerge from the four Core benchmarks (Tables~\ref{tab:ablation_core3}--\ref{tab:ablation_core1_4}):
+\begin{enumerate}
+    \item \emph{Step-0 Conditioning Enforces Actuator Rate Compliance:} In transient braking (Core-3), Variants A and B violate the slew-rate limit by $0.3539~\text{m/s}^2$ ($+141.6\%$ over $\Delta u_{\max}$). Introducing step-0 conditioning in Variants C, D, and E guarantees analytical slew-rate compliance across all nominal and transition steps (Theorem~2 and Proposition~2), with numerical simulation residuals bounded strictly within the interior-point solver convergence tolerance ($r_{\Delta u}^{\max} \le 5.10 \times 10^{-5}~\text{m/s}^2$).
+    \item \emph{Trajectory Bounds Prevent Interval Collapse:} Combining static bounds with step-0 conditioning (Variant C) causes interval collapse ($w_{\min} = -1.6025~\text{m/s}^2$), dropping feasibility to 33.3\%. Trajectory-dependent bounds (Variant D) expand the interval ($w_{\min} = -0.0847~\text{m/s}^2$) and recover feasibility to 86.3\%.
+    \item \emph{LMI Gain Selection Restores Full Feasibility and Smoothness:} Re-tuning the gain to $K_{\mathrm{opt}}$ (Variant E) achieves a strictly positive interval width ($w_{\min} = +0.1963~\text{m/s}^2$), restoring 100.0\% feasibility while reducing control total variation by 48.4\% (from 7.4787 to 3.8620).
+    \item \emph{Steady-State Conservatism Reduction (Core-1):} Under nominal equilibrium ($a_p = 0, w = 0$), all controllers maintain 100.0\% feasibility. However, the trajectory-dependent bound reduces peak uncertainty from $\bar\sigma = 3.6038$ down to $0.2784$ (Variant E, a 92.3\% reduction), confirming that static bounding boxes inflate conservatism even during undisturbed steady-state cruising.
+    \item \emph{Compound Severe Braking and Wind Disturbance (Core-4):} Core-4 connects directly to the wind disturbance scenario investigated by Quan et al.~\cite{Quan2024}. Under severe lead deceleration ($a_p = -3.0~\text{m/s}^2$) coupled with active aerodynamic wind ($1.35~\text{m/s}^2$), QP constraints become unfeasible across all variants during the braking pulse. Crucially, unconditioned Variant B violates actuator rate limits ($0.0074~\text{m/s}^2$), whereas Variants C, D, and E maintain zero slew violations via the deterministic fallback filter. Note that in Core-4 and other low-feasibility emergency cases, the zero-slew guarantee is strictly an analytical property of the fallback law (Proposition~2), rather than an MPC optimization success. Furthermore, Variant E compresses peak uncertainty by 95.0\% (from 189.68 in Variant A down to 9.43).
+    \item \emph{Computational Complexity and Real-Time Feasibility:} Median QP solve times in the interpreted MATLAB R2025b prototype (YALMIP + SDPT3/quadprog) range from 58.43~ms to 114.71~ms (peaking at 184.54~ms during active-set reconfigurations in Variant D). While this borders the $T_s = 100$~ms sampling period in interpreted MATLAB, the underlying optimization is a convex, strictly positive-definite QP with only $N = 15$ scalar decision variables and simple polyhedral constraints. Based on published embedded QP benchmarks for comparable problem dimensions, compiling this QP into embedded C (e.g., via OSQP or qpOASES) is projected to execute in under 1.5--3.0~ms on automotive microcontrollers (such as ARM Cortex-R5 or Infineon AURIX TC397), though on-target hardware-in-the-loop validation remains necessary for formal timing certification.
+    \item \emph{Empirical Sensitivity to Open-Loop Physical Drift Bounds:} To evaluate whether the observed 100.0\% QP feasibility of Variant~E on Benchmark~3 is sensitive to the comfort jerk assumption $\bar\delta_a = 0.20~\text{m/s}^2$, the closed-loop simulation was re-evaluated under the unconditional physical saturation bound $\bar\delta_{a,\mathrm{phys}} = 1.0921~\text{m/s}^2$. Peak uncertainty increased to $\bar\sigma_{\mathrm{peak}} = 8.5075$ (contained within $\sigma^* = 13.2482$), and Variant~E preserved 100.0\% QP feasibility (51/51 steps) with zero fallback activations and zero slew violations ($0.0000~\text{m/s}^2$) for this scenario. While this demonstrates empirical resilience across the tested deceleration profile, it constitutes a scenario-specific sensitivity check rather than an analytical invariance proof for arbitrary non-compact disturbances.
+\end{enumerate}
+
+\subsection{16-Case Emergency Braking Benchmark Matrix}
+
+To evaluate boundary behavior and guarantee constraint satisfaction across operating extremes, the emergency evaluation is conducted over a \textbf{structured 16-case boundary-mapping matrix} organized into four physical stress groups:
+\begin{enumerate}
+    \item \emph{Group 1 (Spacing Sweep):} Fixed braking $a_p = -2.0~\text{m/s}^2$ across initial spacing errors $\delta_d \in \{-10, -5, 0, +5\}~\text{m}$ (corresponding to initial clearances $l(0) \in \{25.0, 30.0, 35.0, 40.0\}~\text{m}$).
+    \item \emph{Group 2 (Relative Velocity Sweep):} Fixed $a_p = -2.0~\text{m/s}^2$ across relative velocities $\delta_v \in \{-3.0, -1.5, +1.5, +3.0\}~\text{m/s}$.
+    \item \emph{Group 3 (Deceleration Magnitude Sweep):} Nominal equilibrium $x_0 = [0, 0, 0]^\top$ across braking pulses $a_p \in \{-1.0, -2.0, -3.0, -4.0\}~\text{m/s}^2$.
+    \item \emph{Group 4 (Extreme Compound Stress):} Severe combined initial errors and deceleration, including hard close-following ($l(0) = 23.0~\text{m}$, $\delta_d = -12.0~\text{m}$), rapid closure with extreme braking ($l(0) = 27.0~\text{m}$, $\delta_v = -2.0~\text{m/s}$, $a_p = -3.0~\text{m/s}^2$), emergency stop under active aerodynamic wind ($w = 1$), and near-collision boundary ($l(0) = 21.5~\text{m}$, $\delta_d = -13.5~\text{m}$, $a_p = -3.0~\text{m/s}^2$).
+\end{enumerate}
+
+Table~\ref{tab:emergency16} reports the complete results across Controller~A (Nominal), Controller~B (Quan et al.~\cite{Quan2024} Static Tube MPC), and Controller~C (Proposed).
+
+\begin{table*}[t]
+\centering
+\caption{Complete 16-Case Structured Emergency-Braking Matrix: Exact Initial-Condition Tuples and Comparison of Controllers A, B, and C}
+\label{tab:emergency16}
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{clcccccccccc}
+\toprule
+& & \multicolumn{4}{c}{\textbf{Exact Scenario Parameters \& Initial States}} & \multicolumn{2}{c}{\textbf{Controller A (Nominal)}} & \multicolumn{2}{c}{\textbf{Controller B (Quan et al.~\cite{Quan2024})}} & \multicolumn{2}{c}{\textbf{Controller C (Proposed)}} \\
+\cmidrule(lr){3-6} \cmidrule(lr){7-8} \cmidrule(lr){9-10} \cmidrule(lr){11-12}
+\textbf{Case} & \textbf{Operating Group} & $\delta_{d0} (l_0)$ [m] & $\delta_{v0} (v_{p0})$ [m/s] & $a_p$ [$\text{m/s}^2$] & Wind $w$ & $r_{\Delta u}^{\max}$ [m/s$^2$] & $l_{\min}$ [m] & $r_{\Delta u}^{\max}$ [m/s$^2$] & $l_{\min}$ [m] & $r_{\Delta u}^{\max}$ [m/s$^2$] & $l_{\min}$ [m] \\
+\midrule
+1 & Spacing Sweep & $-10.0$ ($25.0$) & $0.0$ ($20.0$) & $-2.0$ & 0 & 0.0000 & 24.47 & 0.7990 & 24.34 & \textbf{0.0000}$^*$ & \textbf{24.47} \\
+2 & Spacing Sweep & $-5.0$ ($30.0$) & $0.0$ ($20.0$) & $-2.0$ & 0 & 0.2425 & 30.00 & 0.7990 & 29.34 & \textbf{0.0000}$^*$ & \textbf{29.47} \\
+3 & Spacing Sweep & $0.0$ ($35.0$) & $0.0$ ($20.0$) & $-2.0$ & 0 & 0.0595 & 32.83 & 1.0819 & 31.41 & \textbf{0.0000}$^*$ & \textbf{34.29} \\
+4 & Spacing Sweep & $+5.0$ ($40.0$) & $0.0$ ($20.0$) & $-2.0$ & 0 & 0.7683 & 36.05 & 0.8582 & 38.06 & \textbf{0.0001}$^*$ & \textbf{38.10} \\
+\midrule
+5 & RelSpeed Sweep & $0.0$ ($35.0$) & $-3.0$ ($17.0$) & $-2.0$ & 0 & 0.1644 & 33.60 & 0.8015 & 33.59 & \textbf{0.0000}$^*$ & \textbf{33.60} \\
+6 & RelSpeed Sweep & $0.0$ ($35.0$) & $-1.5$ ($18.5$) & $-2.0$ & 0 & 0.5956 & 31.47 & 0.7961 & 34.32 & \textbf{0.0000}$^*$ & \textbf{34.33} \\
+7 & RelSpeed Sweep & $0.0$ ($35.0$) & $+1.5$ ($21.5$) & $-2.0$ & 0 & 0.3540 & 35.00 & 0.7137 & 33.72 & \textbf{0.0000}$^*$ & \textbf{33.92} \\
+8 & RelSpeed Sweep & $0.0$ ($35.0$) & $+3.0$ ($23.0$) & $-2.0$ & 0 & 0.0000 & 33.20 & 0.7137 & 32.96 & \textbf{0.0000}$^*$ & \textbf{33.20} \\
+\midrule
+9 & Decel Sweep & $0.0$ ($35.0$) & $0.0$ ($20.0$) & $-1.0$ & 0 & 0.0000 & 34.52 & 0.3539 & 32.50 & \textbf{0.0000}$^*$ & \textbf{32.69} \\
+10 & Decel Sweep & $0.0$ ($35.0$) & $0.0$ ($20.0$) & $-2.0$ & 0 & 0.0595 & 32.83 & 1.0819 & 31.41 & \textbf{0.0000}$^*$ & \textbf{34.29} \\
+11 & Decel Sweep & $0.0$ ($35.0$) & $0.0$ ($20.0$) & $-3.0$ & 0 & 0.3447 & 32.40 & 1.5608 & 31.49 & \textbf{0.0000}$^*$ & \textbf{33.98} \\
+12 & Decel Sweep & $0.0$ ($35.0$) & $0.0$ ($20.0$) & $-4.0$ & 0 & 0.6089 & 32.16 & 2.4112 & 31.87 & \textbf{0.0000}$^*$ & \textbf{33.58} \\
+\midrule
+13 & Compound Stress & $-12.0$ ($23.0$) & $0.0$ ($20.0$) & $-2.0$ & 0 & 0.0000 & 22.47 & 0.7991 & 22.34 & \textbf{0.0000}$^*$ & \textbf{22.47} \\
+14 & Compound Stress & $-8.0$ ($27.0$) & $-2.0$ ($18.0$) & $-3.0$ & 0 & 0.5045 & 26.09 & 1.3789 & 25.12 & \textbf{0.0000}$^*$ & \textbf{26.09} \\
+15 & Compound Stress & $0.0$ ($35.0$) & $0.0$ ($20.0$) & $-4.0$ & 1 & 0.6860 & 32.02 & 2.4373 & 31.73 & \textbf{0.0000}$^*$ & \textbf{33.57} \\
+16 & Compound Stress & $-13.5$ ($21.5$) & $0.0$ ($20.0$) & $-3.0$ & 0 & 0.0000 & 20.56 & 1.4011 & 19.00 & \textbf{0.0000}$^*$ & \textbf{20.56} \\
+\bottomrule
+\end{tabular}
+\begin{flushleft}
+\footnotesize
+\emph{Definitions and Units:} The maximum slew residual is defined as $r_{\Delta u}^{\max} = \max_{t \in [0, T_{\mathrm{sim}}]} \max(0, |u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1}| - \Delta u_{\max})$ in $\text{m/s}^2$ over the full simulation duration $T_{\mathrm{sim}} = 5.0~\text{s}$ ($N_{\mathrm{eval}} = 51$ sampled steps). The minimum clearance is $l_{\min} = \min_{t \in [0, T_{\mathrm{sim}}]} l_t$ in meters, evaluated continuously over the entire 5.0~s simulation. Host vehicle initial velocity is $v_0 = 20.0~\text{m/s}$ with standstill distance $l_0 = 5.0~\text{m}$ and headway time $\tau_h = 1.5~\text{s}$, yielding nominal desired clearance $l_{\mathrm{des}} = \tau_h v_0 + l_0 = 35.0~\text{m}$. Initial clearance is $l(0) = \delta_{d0} + 35.0~\text{m}$. Lead vehicle deceleration pulse $a_p$ is applied for $t \in [1.0, 3.0]~\text{s}$. Active wind gust ($w = 1$) applies continuous aerodynamic force mismatch of $1.35~\text{m/s}^2$ for $t \in [0.0, 5.0]~\text{s}$. Feasibility ratios for Controller C across Cases 1--16 are respectively 0.0\%, 0.0\%, 29.4\%, 15.7\%, 0.0\%, 0.0\%, 0.0\%, 0.0\%, 100.0\%, 29.4\%, 27.5\%, 25.5\%, 0.0\%, 0.0\%, 25.5\%, and 0.0\%.\\
+$^*$For Controller~C, entries marked with an asterisk indicate numerical residuals bounded strictly by $r_{\Delta u}^{\max} \le 5.10 \times 10^{-5}~\text{m/s}^2$ (occurring in Case~4, which rounds to $0.0001$ at four decimal places). These small residuals reflect the standard interior-point solver primal feasibility tolerance ($\epsilon_{\mathrm{feas}} \approx 10^{-5}$ for SDPT3/quadprog), representing zero structural violation of the slew constraints. In comparison, Controllers~A and B display macro-level structural slew violations up to $0.7683~\text{m/s}^2$ and $2.4373~\text{m/s}^2$, respectively.
+\end{flushleft}
+\end{table*}
+
+\subsection{Distinguishing QP Feasibility, Fallback Activation, and Actuator Compliance}
+
+A central insight highlighted by Table~\ref{tab:emergency16} is the critical distinction between three separate performance dimensions:
+\begin{enumerate}
+    \item \emph{Primal QP Feasibility:} Whether the nominal constrained receding-horizon optimization problem admits a valid primal solution at sample instant $t$. When the QP is infeasible, it is explicitly classified as an online optimization failure handled by the fallback supervisor, rather than a successful MPC solve.
+    \item \emph{Applied-Input Compliance:} Whether the total physical command delivered to the vehicle plant strictly adheres to amplitude bounds ($u \in [u_{\min}, u_{\max}]$) and per-sample slew-rate limits ($|u_{\mathrm{applied},t} - u_{\mathrm{applied},t-1}| \le \Delta u_{\max}$).
+    \item \emph{Safety Performance (Clearance):} Whether the inter-vehicle clearance $l_t$ remains strictly positive and above the desired standstill threshold ($l_t \ge l_0 = 5.0~\text{m}$) across the evaluated trajectory. Crucially, applied-input compliance and safety performance are related but not interchangeable: zero actuator slew violation does not by itself prove collision avoidance or robust safety under arbitrary perturbations; safe stopping remains an empirical validation across the operating envelope.
+\end{enumerate}
+
+In severe boundary scenarios (such as Cases 1, 2, 5, 6, 7, 8, 13, 14, and 16), Controller~C exhibits 0.0\% QP feasibility, yet simultaneously achieves zero slew violation ($0.0000~\text{m/s}^2$ with numerical residuals bounded strictly within interior-point solver tolerance, $r_{\Delta u}^{\max} \le 5.10 \times 10^{-5}~\text{m/s}^2$) and positive physical clearance ($l_{\min} \ge 20.56~\text{m}$). It is essential to emphasize that in these severe initial-condition cases, \textbf{the zero-slew result is guaranteed by design through the deterministic fallback law (Proposition~2), rather than an online optimization achievement of the MPC planner}. In these aggressive tests, the large initial headway deficit or rapid closing velocity causes the nominal tightened QP constraint set to become empty from the very first sample. Consequently, the controller delegates control entirely to the deterministic fallback policy (\ref{eq:fallback}).
+
+Rather than generating large, oscillatory input jumps—as observed in Controller~B, which violates the slew limit by up to $2.4373~\text{m/s}^2$ ($+974.9\%$)—Controller~C's fallback executes monotonic, smooth deceleration at exactly the rate limit $-\Delta u_{\max} = -0.25~\text{m/s}^2$ per sample down to $u_{\min} = -3.0~\text{m/s}^2$. This controlled deceleration prevents secondary plant excitation and command chatter, ensuring that the host vehicle smoothly stops while preserving a generous clearance margin ($l_{\min} = 20.56~\text{m}$ in the most extreme near-collision test, Case~16). Thus, reporting 0\% QP feasibility transparently reflects that nominal tracking optimization was impossible under those severe initial conditions, while safety and rate compliance were successfully upheld by the certified fallback logic. Controller~A also violates slew limits in 11 of the 16 cases (up to $0.7683~\text{m/s}^2$). Controller~C is the only controller achieving zero slew violations across all 16 cases.
+
+\section{Discussion and Conclusion}
+
+\subsection{Discussion of Findings and Practical Implications}
+
+The simulation results illustrate three practical interactions in tube-based MPC for ACC:
+\begin{enumerate}
+    \item \emph{Applied-Input Enforcement:} Nominal QP feasibility does not imply physical actuator compliance when feedback and disturbance rejection are evaluated outside the optimizer. Conditioning the first nominal decision on the instantaneous compensation directly eliminates this gap.
+    \item \emph{Uncertainty Propagation Conservatism:} Static uncertainty bounds cause severe interval collapse in automotive applications. Trajectory-dependent bounds mitigate this conservatism and recover feasibility.
+    \item \emph{LMI-Verified Gain Selection:} The ancillary gain critically affects the support bound $g_u$. Selecting $K_{\mathrm{opt}}$ via an LMI-verified search expands the collapse limit by 21.66\% and smooths control activity by 48.4\%.
+    \item \emph{Compliance vs Collision Avoidance:} Slew-rate invariance and bounded deceleration are analytical properties of the proposed control law and fallback logic. Collision avoidance is an empirical property validated over the tested 16-case benchmark suite.
+\end{enumerate}
+
+\subsection{Limitations and Assumptions}
+
+Several limitations define the scope of these conclusions:
+\begin{enumerate}
+    \item \emph{Vehicle Dynamics Simplification:} The model employs a linearized 3-state longitudinal representation with first-order powertrain lag. Nonlinear tire traction limits, road grade variations, and suspension pitch dynamics were not modeled.
+    \item \emph{Numerical Conditioning of LMI Certificate:} The LMI certificate exhibits $\lambda_{\max}(\mathcal{L}) \approx -1.0\times 10^{-6}$ and $\operatorname{cond}(P) \approx 1.49\times 10^4$. While mathematically valid, this near-boundary residual requires consistent numerical scaling and solver convergence tolerances ($10^{-6}$ to $10^{-7}$), as tighter tolerances ($10^{-8}$) encounter numerical boundary limits.
+    \item \emph{Finite Scenario Coverage:} The 16 emergency cases provide structured boundary exploration, but do not constitute a universal formal proof of collision avoidance for arbitrary initial states or adversarial lead-vehicle trajectories.
+    \item \emph{Real-Time Solver Prototyping:} In the interpreted MATLAB R2025b environment using YALMIP and SDPT3/quadprog, median solve times range between 58 and 115~ms (peaking at 185~ms during active-set changes), which borders the 100~ms sampling period. While sufficient for algorithmic verification, real-time automotive deployment requires compiling the 15-variable strictly convex QP into deterministic C-code (e.g., using OSQP or qpOASES). While published embedded benchmarks for comparable small-scale QPs indicate execution latencies of 1.5--3.0~ms on automotive microcontrollers (such as ARM Cortex-R5 or Infineon AURIX), on-target hardware-in-the-loop (HIL) benchmarking of the compiled pipeline remains a necessary future step.
+\end{enumerate}
+
+\subsection{Conclusion}
+
+This paper developed an applied-input-constrained, trajectory-dependent tube MPC architecture for longitudinal ACC. By integrating instantaneous step-0 conditioning, dimensionally consistent trajectory-dependent uncertainty propagation, and LMI-verified feedback gain selection, the proposed controller eliminates actuator slew-rate violations while restoring optimization feasibility and control smoothness. Future research will explore nonlinear parameter-varying extensions, explicit road grade estimation, and hardware-in-the-loop experimental validation.
+
+\begin{thebibliography}{00}
+
+\bibitem{Quan2024}
+Y.~S.~Quan, J.~S.~Kim, and C.~C.~Chung, ``Robust adaptive cruise control design using model predictive control,'' \emph{IEEE Trans. Intell. Veh.}, 2024, doi: 10.1109/TIV.2024.3411012.
+
+\bibitem{Mayne2005}
+D.~Q. Mayne, M.~M. Seron, and S.~V. Rakovi{\'c}, ``Robust model predictive control of constrained linear systems with bounded disturbances,'' \emph{Automatica}, vol.~41, no.~2, pp. 219--224, 2005.
+
+\bibitem{Rakovic2012}
+S.~V. Rakovi{\'c}, W.~S. Levine, and B.~A{\c{c}}{\i}kme{\c{s}}e, ``Elastic tubes: Robust model predictive control of constrained linear systems,'' \emph{Automatica}, vol.~48, no.~8, pp. 1608--1618, 2012.
+
+\bibitem{Chisci2001}
+L.~Chisci, J.~A. Rossiter, and G.~Zappa, ``Systems with persistent disturbances: predictive controllers with restricted constraints,'' \emph{Automatica}, vol.~37, no.~7, pp. 1019--1028, 2001.
+
+\bibitem{Ping2023}
+X.~Ping, Y.~Fan, and B.~Bao, ``Ellipsoidal output-feedback tube model predictive control for constrained linear systems with disturbances and measurement noise,'' \emph{Int. J. Robust Nonlinear Control}, vol.~33, no.~14, pp. 8412--8431, 2023.
+
+\bibitem{Zhou2024}
+Y.~Zhou, Z.~Wan, and W.~Xiong, ``Robust tube model predictive control for linear systems with state and input delays,'' \emph{ISA Transactions}, vol.~144, pp. 248--259, 2024.
+
+\bibitem{Fan2024}
+X.~Fan, L.~Zhang, and J.~Xiao, ``Dynamic tube model predictive control for adaptive cruise control with state-dependent uncertainty and probabilistic safety constraints,'' \emph{IEEE Trans. Intell. Veh.}, vol.~9, no.~4, pp. 4512--4524, 2024.
+
+\bibitem{Richards2006}
+A.~Richards and J.~P. How, ``Robust model predictive control with input rate constraints,'' \emph{IEEE Trans. Control Syst. Technol.}, vol.~14, no.~1, pp. 147--153, 2006.
+
+\end{thebibliography}
+
+\end{document}
