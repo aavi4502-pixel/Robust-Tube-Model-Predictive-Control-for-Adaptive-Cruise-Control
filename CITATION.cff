@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software or methodology in your research, please cite it as below."
+title: "Trajectory-Dependent Uncertainty Propagation and Applied-Input-Constrained Tube MPC for Adaptive Cruise Control"
+authors:
+  - family-names: "K."
+    given-names: "Avinash"
+    email: "aavi4502@gmail.com"
+    affiliation: "Advanced Vehicle Control Laboratory, Department of Electrical Engineering"
+repository-code: "https://github.com/aavi4502-pixel/Robust-Tube-Model-Predictive-Control-for-Adaptive-Cruise-Control"
+url: "https://aavi4502-pixel.github.io/Robust-Tube-Model-Predictive-Control-for-Adaptive-Cruise-Control/"
+keywords:
+  - model-predictive-control
+  - adaptive-cruise-control
+  - tube-mpc
+  - actuator-slew-rate
+  - robust-control
+  - vehicle-following
+  - matlab
+  - simulink
+license: "MIT"
+version: "1.0.0"
+date-released: "2026-10-21"
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "K."
+      given-names: "Avinash"
+      email: "aavi4502@gmail.com"
+      affiliation: "Advanced Vehicle Control Laboratory, Department of Electrical Engineering"
+  title: "Trajectory-Dependent Uncertainty Propagation and Applied-Input-Constrained Tube MPC for Adaptive Cruise Control"
+  journal: "IEEE Transactions on Control Systems Technology"
+  status: "in preparation"
+  year: 2026
