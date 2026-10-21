@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Applied-Input-Constrained Tube MPC for Longitudinal ACC | Research Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .glow-cyan { box-shadow: 0 0 20px rgba(6, 182, 212, 0.25); }
+        .glow-emerald { box-shadow: 0 0 20px rgba(16, 185, 129, 0.25); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased selection:bg-cyan-500 selection:text-white">
+
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="w-3 h-3 rounded-full bg-cyan-400 animate-pulse"></span>
+                <span class="font-bold text-sm sm:text-base tracking-wider text-slate-100">ROBUST TUBE MPC <span class="text-cyan-400">ACC</span></span>
+                <span class="hidden md:inline-block text-[11px] bg-slate-800 border border-slate-700 text-slate-300 px-2 py-0.5 rounded-full font-mono">IEEE TCST Submission</span>
+            </div>
+            <div class="flex items-center space-x-3 text-xs">
+                <a href="#simulation" class="text-slate-300 hover:text-cyan-400 transition font-medium">Simulator</a>
+                <a href="#video" class="text-slate-300 hover:text-cyan-400 transition font-medium">Video</a>
+                <a href="#results" class="text-slate-300 hover:text-cyan-400 transition font-medium">Results</a>
+                <a href="#theory" class="text-slate-300 hover:text-cyan-400 transition font-medium">Theory</a>
+                <a href="https://github.com/aavi4502-pixel/Robust-Tube-Model-Predictive-Control-for-Adaptive-Cruise-Control" target="_blank" class="bg-cyan-600 hover:bg-cyan-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center space-x-1.5 transition shadow">
+                    <i class="fab fa-github"></i>
+                    <span>GitHub</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 border-b border-slate-900">
+        <div class="max-w-3xl">
+            <div class="inline-flex items-center space-x-2 bg-cyan-950/60 border border-cyan-800/80 text-cyan-300 text-xs px-3 py-1 rounded-full mb-4">
+                <i class="fas fa-certificate text-[10px]"></i>
+                <span>Automotive Control Systems Research & Open-Source Benchmark</span>
+            </div>
+            <h1 class="text-2xl sm:text-4xl font-extrabold tracking-tight text-white leading-tight">
+                Trajectory-Dependent Uncertainty Propagation and Applied-Input-Constrained Tube MPC for Adaptive Cruise Control
+            </h1>
+            <p class="mt-4 text-sm sm:text-base text-slate-400 leading-relaxed">
+                An integrated robust control architecture resolving interval collapse and physical actuator slew-rate violations in longitudinal vehicle following under powertrain lag and persistent aerodynamic disturbances.
+            </p>
+            <div class="mt-6 flex flex-wrap gap-2 text-xs font-mono">
+                <span class="bg-slate-900 border border-slate-800 text-emerald-400 px-3 py-1 rounded-md">Feasibility: 100.0% (Core-3)</span>
+                <span class="bg-slate-900 border border-slate-800 text-cyan-400 px-3 py-1 rounded-md">Max Slew Residual: r &le; 5.10&times;10⁻⁵ m/s²</span>
+                <span class="bg-slate-900 border border-slate-800 text-purple-400 px-3 py-1 rounded-md">Total Variation: -48.4%</span>
+                <span class="bg-slate-900 border border-slate-800 text-amber-400 px-3 py-1 rounded-md">26/26 Automated Tests PASS</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 1: Live Interactive Highway Simulator -->
+    <section id="simulation" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 border-b border-slate-900">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-3">
+            <div>
+                <h2 class="text-lg sm:text-xl font-bold text-white flex items-center space-x-2">
+                    <i class="fas fa-road text-cyan-400"></i>
+                    <span>Interactive Highway Telemetry Simulation</span>
+                </h2>
+                <p class="text-xs text-slate-400 mt-1">Live visual simulation comparing Controller C (Proposed), Controller B (Static Tube), and Controller A (Nominal).</p>
+            </div>
+            <div class="flex items-center space-x-2 bg-slate-900 border border-slate-800 rounded-lg p-1.5 text-xs">
+                <span class="text-slate-400 px-2 font-medium">Select Controller:</span>
+                <select id="ctrlSelect" class="bg-slate-800 border border-slate-700 text-cyan-300 font-medium rounded-md px-3 py-1 focus:outline-none">
+                    <option value="scen3_c" selected>Controller C (Proposed Tube MPC - 100% Feasible)</option>
+                    <option value="scen3_b">Controller B (Quan et al. 2024 Static Tube - 33.3% Feasible)</option>
+                    <option value="scen3_a">Controller A (Nominal Baseline - Rate Violations)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Road Animation Canvas -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl p-4">
+            <div class="flex flex-wrap justify-between items-center mb-3 text-xs font-mono gap-2">
+                <div class="flex items-center space-x-2">
+                    <span class="bg-slate-950 border border-cyan-500/40 text-cyan-400 px-3 py-1 rounded-md" id="hudTime">TIME: 0.0s</span>
+                    <span class="bg-slate-950 border border-emerald-500/40 text-emerald-400 px-3 py-1 rounded-md" id="hudClearance">CLEARANCE: 35.0 m</span>
+                    <span class="bg-slate-950 border border-amber-500/40 text-amber-400 px-3 py-1 rounded-md" id="hudSlew">SLEW: 0.00 / 0.25 m/s²</span>
+                </div>
+                <div id="badgeCompliance" class="bg-emerald-950 border border-emerald-500 text-emerald-300 font-bold px-3 py-1 rounded-full uppercase text-[11px]">
+                    100% Slew Invariant
+                </div>
+            </div>
+
+            <canvas id="roadCanvas" width="960" height="240" class="w-full h-auto rounded-xl bg-[#141824] block shadow-inner"></canvas>
+
+            <div class="flex flex-wrap justify-between items-center text-xs text-slate-400 pt-3 border-t border-slate-800/80 mt-3">
+                <div class="flex items-center space-x-2">
+                    <span class="w-3 h-3 bg-blue-500 rounded-sm inline-block"></span>
+                    <span>Host Vehicle (Blue Sedan)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-6 h-3 bg-emerald-500/30 border border-emerald-400 rounded-sm inline-block"></span>
+                    <span>Dynamic Uncertainty Safety Tube</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="w-3 h-3 bg-red-500 rounded-sm inline-block"></span>
+                    <span>Lead Vehicle (Red Sedan with Brake Lights)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Telemetry Gauges -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5 mt-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow">
+                <span class="text-[11px] text-slate-400 uppercase font-medium tracking-wider">Host Vehicle Speed</span>
+                <div class="mt-1 flex items-baseline space-x-1">
+                    <span id="valHostSpeed" class="text-2xl font-bold font-mono text-cyan-400">72.0</span>
+                    <span class="text-xs text-slate-400">km/h</span>
+                </div>
+                <span id="valHostMps" class="text-[11px] text-slate-400 font-mono mt-1 block">20.0 m/s</span>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow">
+                <span class="text-[11px] text-slate-400 uppercase font-medium tracking-wider">Lead Vehicle Speed</span>
+                <div class="mt-1 flex items-baseline space-x-1">
+                    <span id="valLeadSpeed" class="text-2xl font-bold font-mono text-rose-400">72.0</span>
+                    <span class="text-xs text-slate-400">km/h</span>
+                </div>
+                <span id="valLeadStatus" class="text-[11px] text-slate-400 font-mono mt-1 block">Cruising</span>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow">
+                <span class="text-[11px] text-slate-400 uppercase font-medium tracking-wider">Applied Command u(t)</span>
+                <div class="mt-1 flex items-baseline space-x-1">
+                    <span id="valAccel" class="text-2xl font-bold font-mono text-emerald-400">0.00</span>
+                    <span class="text-xs text-slate-400">m/s²</span>
+                </div>
+                <span id="valRealizedAccel" class="text-[11px] text-slate-400 font-mono mt-1 block">Realized: 0.00 m/s²</span>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 shadow">
+                <span class="text-[11px] text-slate-400 uppercase font-medium tracking-wider">Clearance Distance</span>
+                <div class="mt-1 flex items-baseline space-x-1">
+                    <span id="valClearance" class="text-2xl font-bold font-mono text-emerald-400">35.0</span>
+                    <span class="text-xs text-slate-400">m</span>
+                </div>
+                <span class="text-[11px] text-emerald-400 font-bold mt-1 block">SAFE (l_min &ge; 5.0m)</span>
+            </div>
+        </div>
+
+        <!-- Telemetry Graphs -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-4 shadow-xl">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Synchronized Telemetry Curves (Clearance & Accel vs Time)</h3>
+                <span class="text-[11px] text-slate-400 font-mono">Horizon N=6 | Ts=0.1s</span>
+            </div>
+            <canvas id="graphCanvas" width="960" height="150" class="w-full h-auto rounded-lg bg-[#0f131d] block"></canvas>
+        </div>
+
+        <!-- Playback Controls -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 mt-4 flex flex-col sm:flex-row items-center gap-3">
+            <div class="flex items-center space-x-2">
+                <button id="btnPlay" class="w-10 h-10 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center justify-center transition shadow">
+                    ▶
+                </button>
+                <button id="btnReset" class="w-10 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition border border-slate-700">
+                    ↺
+                </button>
+            </div>
+            <div class="flex-1 w-full flex items-center space-x-3">
+                <span class="text-xs font-mono text-slate-400" id="lblCurrentTime">0.0s</span>
+                <input id="timeSlider" type="range" min="0" max="50" value="0" step="1" class="flex-1 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+                <span class="text-xs font-mono text-slate-400">5.0s</span>
+            </div>
+            <div class="flex items-center space-x-1 text-xs">
+                <button id="btnSpeedHalf" class="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">0.5x Slow-Mo</button>
+                <button id="btnSpeed1" class="px-2.5 py-1.5 rounded bg-cyan-600 text-white font-bold">1.0x Normal</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 2: MATLAB Simulation Video -->
+    <section id="video" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 border-b border-slate-900">
+        <div class="max-w-3xl mb-6">
+            <h2 class="text-lg sm:text-xl font-bold text-white flex items-center space-x-2">
+                <i class="fas fa-video text-cyan-400"></i>
+                <span>MATLAB-Rendered High-Definition Simulation Video</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-1">Recorded directly from the closed-loop Simulink execution pipeline in MATLAB R2025b (Scenario 3: Moderate Deceleration).</p>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl p-4 max-w-4xl">
+            <div class="rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video relative">
+                <video controls autoplay loop playsinline class="w-full h-full object-contain">
+                    <source src="acc_dashboard_scen3_ctrl3.mp4" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+            <div class="mt-4 flex flex-col sm:flex-row justify-between items-start sm:items-center text-xs text-slate-400 gap-2">
+                <div class="flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span class="font-mono text-slate-300">File: acc_dashboard_scen3_ctrl3.mp4 (654 KB)</span>
+                </div>
+                <a href="acc_dashboard_scen3_ctrl3.mp4" download class="text-cyan-400 hover:underline flex items-center space-x-1">
+                    <i class="fas fa-download"></i>
+                    <span>Download MP4 Video</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 3: Empirical Benchmarking Results (Table I & Table III) -->
+    <section id="results" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 border-b border-slate-900">
+        <div class="mb-6">
+            <h2 class="text-lg sm:text-xl font-bold text-white flex items-center space-x-2">
+                <i class="fas fa-table text-cyan-400"></i>
+                <span>Experimental Verification & Benchmarks</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-1">Exact numerical results extracted from precomputed datasets in the reproducibility package.</p>
+        </div>
+
+        <div class="space-y-6">
+            <!-- Table I -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl">
+                <h3 class="text-sm font-bold text-cyan-400 mb-3 uppercase tracking-wider">Table I: Five-Variant Orthogonal Ablation Study (Benchmark 3: Moderate Braking)</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-slate-400 font-mono">
+                                <th class="py-2.5 px-3">Metric</th>
+                                <th class="py-2.5 px-3">Variant A (Baseline)</th>
+                                <th class="py-2.5 px-3">Variant B (Trajectory)</th>
+                                <th class="py-2.5 px-3">Variant C (Static + Step0)</th>
+                                <th class="py-2.5 px-3">Variant D (Traj + Step0)</th>
+                                <th class="py-2.5 px-3 text-cyan-400 font-bold">Variant E (Proposed)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60 font-mono">
+                            <tr>
+                                <td class="py-2 px-3 text-slate-300 font-sans">Uncertainty Propagation</td>
+                                <td class="py-2 px-3">Static</td>
+                                <td class="py-2 px-3">Trajectory</td>
+                                <td class="py-2 px-3">Static</td>
+                                <td class="py-2 px-3">Trajectory</td>
+                                <td class="py-2 px-3 text-cyan-300 font-bold">Trajectory</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 px-3 text-slate-300 font-sans">Step-0 Conditioning</td>
+                                <td class="py-2 px-3">No</td>
+                                <td class="py-2 px-3">No</td>
+                                <td class="py-2 px-3">Yes</td>
+                                <td class="py-2 px-3">Yes</td>
+                                <td class="py-2 px-3 text-cyan-300 font-bold">Yes</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 px-3 text-slate-300 font-sans">Ancillary Gain</td>
+                                <td class="py-2 px-3">K_paper</td>
+                                <td class="py-2 px-3">K_paper</td>
+                                <td class="py-2 px-3">K_paper</td>
+                                <td class="py-2 px-3">K_paper</td>
+                                <td class="py-2 px-3 text-cyan-300 font-bold">K_opt (LMI)</td>
+                            </tr>
+                            <tr class="bg-slate-800/30">
+                                <td class="py-2 px-3 text-slate-200 font-sans font-semibold">QP Feasibility Ratio</td>
+                                <td class="py-2 px-3">100.0%</td>
+                                <td class="py-2 px-3">100.0%</td>
+                                <td class="py-2 px-3 text-rose-400 font-bold">33.3% (Collapse)</td>
+                                <td class="py-2 px-3">86.3%</td>
+                                <td class="py-2 px-3 text-emerald-400 font-bold">100.0% (Restored)</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 px-3 text-slate-300 font-sans">Max Slew Violation</td>
+                                <td class="py-2 px-3 text-rose-400">0.3539 m/s²</td>
+                                <td class="py-2 px-3 text-rose-400">0.3539 m/s²</td>
+                                <td class="py-2 px-3 text-emerald-400">0.0000 m/s²</td>
+                                <td class="py-2 px-3 text-emerald-400">0.0000 m/s²</td>
+                                <td class="py-2 px-3 text-emerald-400 font-bold">0.0000 m/s² (r &le; 5.1&times;10⁻⁵)</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 px-3 text-slate-300 font-sans">Min Interval Width w_min</td>
+                                <td class="py-2 px-3">+2.65 m/s²</td>
+                                <td class="py-2 px-3">+4.79 m/s²</td>
+                                <td class="py-2 px-3 text-rose-400">-1.60 m/s² (Empty)</td>
+                                <td class="py-2 px-3 text-rose-400">-0.08 m/s²</td>
+                                <td class="py-2 px-3 text-emerald-400 font-bold">+0.20 m/s² (Non-empty)</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 px-3 text-slate-300 font-sans">Control Total Variation</td>
+                                <td class="py-2 px-3">7.48 m/s²</td>
+                                <td class="py-2 px-3">7.48 m/s²</td>
+                                <td class="py-2 px-3">4.69 m/s²</td>
+                                <td class="py-2 px-3">6.88 m/s²</td>
+                                <td class="py-2 px-3 text-emerald-400 font-bold">3.86 m/s² (-48.4%)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Table III Summary -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl">
+                <h3 class="text-sm font-bold text-cyan-400 mb-3 uppercase tracking-wider">Table III: Structured 16-Case Emergency Braking Matrix Summary</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                        <span class="font-bold text-slate-200">Controller A (Nominal MPC)</span>
+                        <p class="text-slate-400 mt-1">Slew limits violated in <span class="text-rose-400 font-bold">11 of 16 cases</span>. Peak violation up to 0.7683 m/s² due to lack of rate constraints.</p>
+                    </div>
+                    <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                        <span class="font-bold text-slate-200">Controller B (Static Tube MPC)</span>
+                        <p class="text-slate-400 mt-1">Slew limits violated in <span class="text-rose-400 font-bold">16 of 16 cases</span>. Peak violation of 2.4373 m/s² (+974.9%) due to ancillary chattering.</p>
+                    </div>
+                    <div class="bg-slate-950 p-4 rounded-lg border border-emerald-500/40">
+                        <span class="font-bold text-emerald-400">Controller C (Proposed Co-Designed)</span>
+                        <p class="text-slate-300 mt-1">Zero structural slew violations across <span class="text-emerald-400 font-bold">16 of 16 cases</span> (r &le; 5.10&times;10⁻⁵ m/s²). Safe stopping l_min &ge; 20.56 m.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 4: Theoretical Innovations -->
+    <section id="theory" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 border-b border-slate-900">
+        <div class="mb-6">
+            <h2 class="text-lg sm:text-xl font-bold text-white flex items-center space-x-2">
+                <i class="fas fa-square-root-alt text-cyan-400"></i>
+                <span>Core Theoretical Architecture</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-1">The four pillars of the proposed Tube MPC design.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                <h3 class="font-bold text-cyan-400 text-sm">1. Instantaneous Step-0 Conditioning (Theorem 2)</h3>
+                <p class="text-slate-300 leading-relaxed">
+                    Standard tube MPC computes nominal input u_xi and adds ancillary feedback c_t outside the solver, causing the total applied input u_app = u_xi + c_t to violate slew limits. Our architecture directly constrains the first decision u_xi(0|t) against u_app(t-1) and instantaneous c_t, mathematically proving |u_app(t) - u_app(t-1)| &le; &Delta;u_max.
+                </p>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                <h3 class="font-bold text-cyan-400 text-sm">2. Trajectory-Dependent Uncertainty Propagation</h3>
+                <p class="text-slate-300 leading-relaxed">
+                    Rather than imposing static worst-case bounds across all horizon steps, ellipsoidal disturbance bounds propagate recursively along nominal state transitions under zero-order hold powertrain lag, reducing peak uncertainty sigma_peak from 22.15 to 0.39 and preventing input-interval collapse.
+                </p>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                <h3 class="font-bold text-cyan-400 text-sm">3. LMI-Verified Ancillary Feedback Selection</h3>
+                <p class="text-slate-300 leading-relaxed">
+                    The ancillary gain K_opt = [1.2345, -0.5985, -1.2588] is synthesized via discrete Lyapunov dissipation LMIs with R=50. It minimizes input support coefficient g_u = 0.755533, expanding collapse capacity by +21.66% and reducing control total variation by 48.4%.
+                </p>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                <h3 class="font-bold text-cyan-400 text-sm">4. Slew-Invariant Fallback Execution (Proposition 2)</h3>
+                <p class="text-slate-300 leading-relaxed">
+                    When aggressive headway deficits make nominal optimization infeasible, a deterministic rate-limited fallback controller executes monotonic deceleration at exactly -&Delta;u_max down to u_min, guaranteeing inductive rate compliance across all switching sequences.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer & Downloads -->
+    <footer class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 text-xs text-slate-400">
+        <div class="flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-slate-900 pt-6">
+            <div>
+                <span class="font-bold text-slate-200">Advanced Vehicle Control Laboratory (AVCL)</span>
+                <p class="text-[11px] text-slate-500 mt-0.5">Department of Electrical Engineering | Academic Open-Source Release</p>
+            </div>
+            <div class="flex items-center space-x-3">
+                <a href="https://github.com/aavi4502-pixel/Robust-Tube-Model-Predictive-Control-for-Adaptive-Cruise-Control" target="_blank" class="hover:text-cyan-400 transition">
+                    <i class="fab fa-github text-base"></i>
+                </a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Interactive Simulation JavaScript -->
+    <script>
+        // Load data from external json file
+        let simData = null;
+        let currentCtrl = 'scen3_c';
+        let step = 0;
+        let isPlaying = false;
+        let playSpeed = 1.0;
+        let animInterval = null;
+
+        const roadCanvas = document.getElementById('roadCanvas');
+        const rCtx = roadCanvas.getContext('2d');
+        const graphCanvas = document.getElementById('graphCanvas');
+        const gCtx = graphCanvas.getContext('2d');
+
+        const ctrlSelect = document.getElementById('ctrlSelect');
+        const btnPlay = document.getElementById('btnPlay');
+        const btnReset = document.getElementById('btnReset');
+        const timeSlider = document.getElementById('timeSlider');
+        const lblCurrentTime = document.getElementById('lblCurrentTime');
+        const btnSpeedHalf = document.getElementById('btnSpeedHalf');
+        const btnSpeed1 = document.getElementById('btnSpeed1');
+
+        fetch('data/dashboard_data.json')
+            .then(res => res.json())
+            .then(data => {
+                simData = data;
+                initApp();
+            })
+            .catch(err => console.error("Error loading simulation data:", err));
+
+        function initApp() {
+            ctrlSelect.addEventListener('change', (e) => {
+                currentCtrl = e.target.value;
+                renderFrame();
+            });
+
+            btnPlay.addEventListener('click', togglePlay);
+            btnReset.addEventListener('click', () => { setStep(0); });
+            timeSlider.addEventListener('input', (e) => { setStep(parseInt(e.target.value)); });
+
+            btnSpeedHalf.addEventListener('click', () => {
+                playSpeed = 0.5;
+                btnSpeedHalf.className = "px-2.5 py-1.5 rounded bg-cyan-600 text-white font-bold";
+                btnSpeed1.className = "px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700";
+                if (isPlaying) restartTimer();
+            });
+
+            btnSpeed1.addEventListener('click', () => {
+                playSpeed = 1.0;
+                btnSpeed1.className = "px-2.5 py-1.5 rounded bg-cyan-600 text-white font-bold";
+                btnSpeedHalf.className = "px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700";
+                if (isPlaying) restartTimer();
+            });
+
+            setStep(0);
+        }
+
+        function togglePlay() {
+            if (isPlaying) pause(); else play();
+        }
+
+        function play() {
+            isPlaying = true;
+            btnPlay.textContent = '❚❚';
+            btnPlay.className = "w-10 h-10 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center justify-center transition shadow";
+            restartTimer();
+        }
+
+        function pause() {
+            isPlaying = false;
+            btnPlay.textContent = '▶';
+            btnPlay.className = "w-10 h-10 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center justify-center transition shadow";
+            if (animInterval) clearInterval(animInterval);
+        }
+
+        function restartTimer() {
+            if (animInterval) clearInterval(animInterval);
+            const intervalMs = 100 / playSpeed;
+            animInterval = setInterval(() => {
+                if (simData && step < simData.t.length - 1) {
+                    setStep(step + 1);
+                } else {
+                    pause();
+                }
+            }, intervalMs);
+        }
+
+        function setStep(newStep) {
+            if (!simData) return;
+            step = Math.max(0, Math.min(simData.t.length - 1, newStep));
+            timeSlider.value = step;
+            lblCurrentTime.textContent = simData.t[step].toFixed(1) + 's';
+            renderFrame();
+        }
+
+        function renderFrame() {
+            if (!simData) return;
+            const data = simData[currentCtrl];
+            const t = simData.t[step];
+            const clr = data.clearance[step];
+            const vHost = data.v_host[step];
+            const vLead = data.v_lead[step];
+            const u = data.u_app[step];
+            const aReal = data.a_ego[step];
+
+            const slew = (step > 0) ? Math.abs(data.u_app[step] - data.u_app[step - 1]) : 0;
+            const isBraking = (step >= 10 && step <= 30);
+
+            document.getElementById('hudTime').textContent = `TIME: ${t.toFixed(1)}s`;
+            document.getElementById('hudClearance').textContent = `CLEARANCE: ${clr.toFixed(1)} m`;
+            document.getElementById('hudSlew').textContent = `SLEW: ${slew.toFixed(2)} / 0.25 m/s²`;
+
+            document.getElementById('valHostSpeed').textContent = (vHost * 3.6).toFixed(1);
+            document.getElementById('valHostMps').textContent = `${vHost.toFixed(1)} m/s`;
+
+            document.getElementById('valLeadSpeed').textContent = (vLead * 3.6).toFixed(1);
+            document.getElementById('valLeadStatus').textContent = isBraking ? 'BRAKING (-1.0 m/s²)' : 'Cruising';
+            document.getElementById('valLeadStatus').className = isBraking ? 'text-rose-400 font-bold animate-pulse' : 'text-slate-400';
+
+            document.getElementById('valAccel').textContent = (u >= 0 ? '+' : '') + u.toFixed(2);
+            document.getElementById('valRealizedAccel').textContent = `Realized: ${(aReal >= 0 ? '+' : '') + aReal.toFixed(2)} m/s²`;
+            document.getElementById('valClearance').textContent = clr.toFixed(1);
+
+            const badge = document.getElementById('badgeCompliance');
+            if (currentCtrl === 'scen3_c') {
+                badge.textContent = '100% Slew Invariant (Feasible)';
+                badge.className = 'bg-emerald-950 border border-emerald-500 text-emerald-300 font-bold px-3 py-1 rounded-full uppercase text-[11px]';
+            } else if (currentCtrl === 'scen3_b') {
+                badge.textContent = 'Feasibility Collapse (33.3%)';
+                badge.className = 'bg-rose-950 border border-rose-500 text-rose-300 font-bold px-3 py-1 rounded-full uppercase text-[11px]';
+            } else {
+                badge.textContent = 'Slew Limit Exceeded (+0.35)';
+                badge.className = 'bg-amber-950 border border-amber-500 text-amber-300 font-bold px-3 py-1 rounded-full uppercase text-[11px]';
+            }
+
+            drawRoad(clr, vHost, isBraking);
+            drawGraph(step, data);
+        }
+
+        function drawRoad(clr, vHost, isBraking) {
+            const w = roadCanvas.width;
+            const h = roadCanvas.height;
+            rCtx.clearRect(0, 0, w, h);
+
+            rCtx.fillStyle = '#181d29';
+            rCtx.fillRect(0, 30, w, h - 60);
+
+            rCtx.fillStyle = '#0f2415';
+            rCtx.fillRect(0, 0, w, 30);
+            rCtx.fillRect(0, h - 30, w, 30);
+
+            rCtx.strokeStyle = '#eab308';
+            rCtx.lineWidth = 3;
+            rCtx.beginPath();
+            rCtx.moveTo(0, 32); rCtx.lineTo(w, 32);
+            rCtx.moveTo(0, h - 32); rCtx.lineTo(w, h - 32);
+            rCtx.stroke();
+
+            rCtx.strokeStyle = '#64748b';
+            rCtx.lineWidth = 2;
+            rCtx.setLineDash([20, 15]);
+            const dashOffset = -(Date.now() / 20 * (vHost / 20)) % 35;
+            rCtx.lineDashOffset = dashOffset;
+            rCtx.beginPath();
+            rCtx.moveTo(0, h * 0.35); rCtx.lineTo(w, h * 0.35);
+            rCtx.moveTo(0, h * 0.65); rCtx.lineTo(w, h * 0.65);
+            rCtx.stroke();
+            rCtx.setLineDash([]);
+
+            const hostX = 130;
+            const hostY = h / 2 - 20;
+            const carW = 65;
+            const carH = 38;
+
+            const scalePxPerM = 15.0;
+            const leadX = hostX + carW + (clr - 15) * scalePxPerM;
+            const leadY = hostY;
+
+            // Draw Safety Tube
+            rCtx.fillStyle = 'rgba(16, 185, 129, 0.22)';
+            rCtx.strokeStyle = 'rgba(52, 211, 153, 0.85)';
+            rCtx.lineWidth = 2;
+            rCtx.setLineDash([6, 4]);
+            rCtx.beginPath();
+            rCtx.rect(hostX + carW, hostY - 4, leadX - (hostX + carW), carH + 8);
+            rCtx.fill();
+            rCtx.stroke();
+            rCtx.setLineDash([]);
+
+            // Distance Dimension
+            rCtx.strokeStyle = '#38bdf8';
+            rCtx.lineWidth = 1.5;
+            rCtx.beginPath();
+            rCtx.moveTo(hostX + carW, hostY - 14);
+            rCtx.lineTo(leadX, hostY - 14);
+            rCtx.stroke();
+
+            rCtx.fillStyle = '#38bdf8';
+            rCtx.font = '12px JetBrains Mono, monospace';
+            rCtx.fillText(`◂ ${clr.toFixed(1)} m ▸`, (hostX + carW + leadX) / 2 - 32, hostY - 18);
+
+            // Host Car
+            drawCar(rCtx, hostX, hostY, carW, carH, '#2563eb', '#60a5fa', false);
+
+            // Lead Car
+            drawCar(rCtx, leadX, leadY, carW, carH, '#dc2626', '#f87171', isBraking);
+        }
+
+        function drawCar(ctx, x, y, w, h, bodyColor, trimColor, braking) {
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(x + 8, y - 4, 15, 5);
+            ctx.fillRect(x + w - 23, y - 4, 15, 5);
+            ctx.fillRect(x + 8, y + h - 1, 15, 5);
+            ctx.fillRect(x + w - 23, y + h - 1, 15, 5);
+
+            ctx.fillStyle = bodyColor;
+            ctx.strokeStyle = trimColor;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 6);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#0f172a';
+            ctx.beginPath();
+            ctx.roundRect(x + 15, y + 4, w - 28, h - 8, 4);
+            ctx.fill();
+
+            if (braking) {
+                ctx.fillStyle = '#ff0000';
+                ctx.shadowColor = '#ff2222';
+                ctx.shadowBlur = 15;
+                ctx.fillRect(x - 2, y + 4, 4, 8);
+                ctx.fillRect(x - 2, y + h - 12, 4, 8);
+                ctx.shadowBlur = 0;
+            } else {
+                ctx.fillStyle = '#7f1d1d';
+                ctx.fillRect(x - 2, y + 5, 3, 6);
+                ctx.fillRect(x - 2, y + h - 11, 3, 6);
+            }
+
+            ctx.fillStyle = '#fef08a';
+            ctx.fillRect(x + w - 1, y + 4, 3, 6);
+            ctx.fillRect(x + w - 1, y + h - 10, 3, 6);
+        }
+
+        function drawGraph(curIdx, data) {
+            const w = graphCanvas.width;
+            const h = graphCanvas.height;
+            gCtx.clearRect(0, 0, w, h);
+
+            gCtx.strokeStyle = '#1e293b';
+            gCtx.lineWidth = 1;
+            gCtx.beginPath();
+            for (let y = 20; y < h; y += 30) {
+                gCtx.moveTo(40, y); gCtx.lineTo(w - 20, y);
+            }
+            gCtx.stroke();
+
+            const n = simData.t.length;
+            const plotW = w - 70;
+            const plotH = h - 35;
+            const startX = 50;
+
+            // Plot 1: Clearance
+            gCtx.strokeStyle = '#10b981';
+            gCtx.lineWidth = 2;
+            gCtx.beginPath();
+            for (let i = 0; i < n; i++) {
+                const px = startX + (i / (n - 1)) * plotW;
+                const py = 10 + (1 - (data.clearance[i] - 20) / 20) * plotH;
+                if (i === 0) gCtx.moveTo(px, py); else gCtx.lineTo(px, py);
+            }
+            gCtx.stroke();
+
+            // Plot 2: Commanded Accel
+            gCtx.strokeStyle = '#38bdf8';
+            gCtx.lineWidth = 2;
+            gCtx.beginPath();
+            for (let i = 0; i < n; i++) {
+                const px = startX + (i / (n - 1)) * plotW;
+                const py = 10 + (1 - (data.u_app[i] - (-3.5)) / 6.0) * plotH;
+                if (i === 0) gCtx.moveTo(px, py); else gCtx.lineTo(px, py);
+            }
+            gCtx.stroke();
+
+            // Zero line
+            const zeroY = 10 + (1 - (0 - (-3.5)) / 6.0) * plotH;
+            gCtx.strokeStyle = '#475569';
+            gCtx.setLineDash([4, 4]);
+            gCtx.beginPath();
+            gCtx.moveTo(startX, zeroY); gCtx.lineTo(w - 20, zeroY);
+            gCtx.stroke();
+            gCtx.setLineDash([]);
+
+            // Scrubber Cursor
+            const cursorX = startX + (curIdx / (n - 1)) * plotW;
+            gCtx.strokeStyle = '#f43f5e';
+            gCtx.lineWidth = 2;
+            gCtx.beginPath();
+            gCtx.moveTo(cursorX, 5); gCtx.lineTo(cursorX, h - 10);
+            gCtx.stroke();
+
+            gCtx.font = '11px JetBrains Mono, monospace';
+            gCtx.fillStyle = '#10b981';
+            gCtx.fillText('— Clearance l(t)', w - 210, 18);
+            gCtx.fillStyle = '#38bdf8';
+            gCtx.fillText('— Command u(t)', w - 110, 18);
+        }
+    </script>
+</body>
+</html>
