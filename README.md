@@ -71,7 +71,7 @@ This guarantees inductive rate compliance ($|u(t) - u(t-1)| \le \Delta u_{\max}$
 The longitudinal vehicle following model incorporates spacing error $\Delta d(t) = d_{\mathrm{lead}}(t) - d_{\mathrm{ego}}(t) - (l_0 + \tau_h v_{\mathrm{ego}}(t))$, relative velocity $\Delta v(t) = v_{\mathrm{lead}}(t) - v_{\mathrm{ego}}(t)$, and ego acceleration $a(t)$:
 
 ```math
-\begin{bmatrix} \Delta\dot d \\ \Delta\dot v \\ \dot a \end{bmatrix} = \begin{bmatrix} 0 & 1 & -\tau_h \\ 0 & 0 & -1 \\ 0 & \frac{c}{\tau_a} & -\frac{1}{\tau_a} \end{bmatrix} \begin{bmatrix} \Delta d \\ \Delta v \\ a \end{bmatrix} + \begin{bmatrix} 0 \\ 0 \\ \frac{1}{\tau_a} \end{bmatrix} u + \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix} a_p + \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} w_a
+\begin{bmatrix} \Delta\dot d \\ \Delta\dot v \\ \dot a \end{bmatrix} = \begin{bmatrix} 0 & 1 & -\tau_h \\ 0 & 0 & -1 \\ 0 & \frac{c}{\tau_a} & c-\frac{1}{\tau_a} \end{bmatrix} \begin{bmatrix} \Delta d \\ \Delta v \\ a \end{bmatrix} + \begin{bmatrix} 0 \\ 0 \\ \frac{1}{\tau_a} \end{bmatrix} u + \begin{bmatrix} 0 \\ 1 \\ 0 \end{bmatrix} a_p + \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} w_a
 ```
 
 ### Key Parameters:
